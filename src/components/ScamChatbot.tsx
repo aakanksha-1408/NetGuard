@@ -222,6 +222,31 @@ function ScanningView({ steps }: { steps: string[] }) {
 /* Main component                                                      */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Stable per-browser identifier used by the server to throttle real Gemini
+ * calls for logged-out visitors (free tier shares 20 requests/DAY across ALL
+ * users). Persisted in localStorage — same pattern as the language preference
+ * in src/lib/i18n/context.tsx. Signed-in state isn't needed here: the routes
+ * only use this id as a cooldown key.
+ */
+function getAiSessionId(): string {
+  const KEY = "ng_ai_session_id";
+  if (typeof window === "undefined") return "server";
+  try {
+    let id = window.localStorage.getItem(KEY);
+    if (!id) {
+      id =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `s-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+      window.localStorage.setItem(KEY, id);
+    }
+    return id;
+  } catch {
+    return "no-storage"; // private mode etc. — server groups these under one key
+  }
+}
+
 export default function ScamChatbot() {
   const { lang, t } = useLang();
   const [view, setView] = useState<View>("input");
@@ -239,6 +264,9 @@ export default function ScamChatbot() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [newsError, setNewsError] = useState<string | null>(null);
+  const [newsErrorType, setNewsErrorType] = useState<string | null>(null);
+  const [newsCached, setNewsCached] = useState(false);
+  const [insightCached, setInsightCached] = useState(false);
   const [imageData, setImageData] = useState<string | null>(null);
   const [imageMime, setImageMime] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -261,6 +289,7 @@ export default function ScamChatbot() {
       setCopied(false);
       setAiInsight(null);
       setAiError(null);
+      setInsightCached(false);
       setAiLoading(true);
 
       // Simulate analysis delay
@@ -310,15 +339,17 @@ export default function ScamChatbot() {
               entities: investigation.entities,
             },
             lang,
+            sessionId: getAiSessionId(),
           }),
         });
         const data = await response.json();
         if (data.aiInsight) {
           setAiInsight(data.aiInsight);
+          setInsightCached(!!data.cached);
         } else if (data.apiKeyMissing) {
           setAiError("AI analysis not configured. Add GOOGLE_GEMINI_API_KEY to enable.");
         } else if (data.error) {
-          setAiError("AI analysis temporarily unavailable.");
+          setAiError(data.error); // server already localizes quota/cooldown messages
         }
       } catch {
         setAiError("AI analysis temporarily unavailable. Local analysis is still shown below.");
@@ -362,6 +393,8 @@ export default function ScamChatbot() {
       setView("scanning");
       setCopied(false);
       setNewsError(null);
+      setNewsErrorType(null);
+      setNewsCached(false);
 
       // Simulate analysis delay
       await new Promise((r) => setTimeout(r, 2000));
@@ -376,6 +409,7 @@ export default function ScamChatbot() {
             lang,
             imageData: imageData ?? undefined,
             imageMimeType: imageMime ?? undefined,
+            sessionId: getAiSessionId(),
           }),
         });
         const data = await response.json();
@@ -383,6 +417,7 @@ export default function ScamChatbot() {
         if (data.result) {
           const nr: NewsCheckResult = data.result;
           setNewsResult(nr);
+          setNewsCached(!!data.cached);
           setView("newsResult");
 
           // Persist ONLY for signed-in users (see scam_investigations note above).
@@ -404,9 +439,11 @@ export default function ScamChatbot() {
           }
         } else if (data.apiKeyMissing) {
           setNewsError("AI fact-checking is not configured on this site.");
+          setNewsErrorType("config");
           setView("newsResult");
         } else {
           setNewsError(data.error || t.scamChatbot.analysisUnavailable);
+          setNewsErrorType(data.errorType ?? "unavailable");
           setView("newsResult");
         }
       } catch {
@@ -861,8 +898,13 @@ export default function ScamChatbot() {
           )}
           {aiInsight && (
             <div className="rounded-2xl border border-teal-200 bg-teal-50 p-6 dark:border-teal-800 dark:bg-teal-950/20">
-              <h2 className="text-base font-semibold text-teal-700 dark:text-teal-300">
+              <h2 className="flex flex-wrap items-center gap-2 text-base font-semibold text-teal-700 dark:text-teal-300">
                 🧠 AI Intelligence Analysis
+                {insightCached && (
+                  <span className="rounded-full border border-zinc-300 bg-zinc-100 px-2.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+                    {t.scamChatbot.previouslyAnalyzed}
+                  </span>
+                )}
               </h2>
               {aiInsight.additionalInsights && (
                 <p className="mt-3 text-sm leading-relaxed text-zinc-300">
@@ -960,16 +1002,22 @@ export default function ScamChatbot() {
             </div>
             <div>
               <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                {t.scamChatbot.analysisUnavailable}
+                {newsErrorType === "daily_limit"
+                  ? t.scamChatbot.dailyLimitReached
+                  : newsErrorType === "throttled"
+                    ? t.scamChatbot.pleaseWaitMoment
+                    : t.scamChatbot.analysisUnavailable}
               </p>
               <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{newsError}</p>
             </div>
-            <button
-              onClick={() => startNewsCheck(input)}
-              className="rounded-full bg-teal-500 px-6 py-2 text-sm font-semibold text-black transition hover:bg-teal-400"
-            >
-              {t.scamChatbot.tryAgain}
-            </button>
+            {newsErrorType !== "daily_limit" && (
+              <button
+                onClick={() => startNewsCheck(input)}
+                className="rounded-full bg-teal-500 px-6 py-2 text-sm font-semibold text-black transition hover:bg-teal-400"
+              >
+                {t.scamChatbot.tryAgain}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -977,6 +1025,14 @@ export default function ScamChatbot() {
       {/* ---- NEWS RESULT VIEW ---- */}
       {view === "newsResult" && newsResult && (
         <div className="flex-1 space-y-6">
+          {/* Cache badge: this verdict was a previous analysis, not a fresh call */}
+          {newsCached && (
+            <div className="flex justify-center">
+              <span className="rounded-full border border-zinc-300 bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+                🗂 {t.scamChatbot.previouslyAnalyzed}
+              </span>
+            </div>
+          )}
           {/* Verdict card */}
           <div className="grid gap-6 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950 sm:grid-cols-3 sm:items-center">
             <div className="flex flex-col items-center">

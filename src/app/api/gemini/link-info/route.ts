@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// Switched to the gemini-flash-latest rolling alias: free-tier quota is per
+// MODEL, so this pool is separate from the exhausted gemini-3.6-flash one.
 const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
 
 export async function POST(request: NextRequest) {
   try {

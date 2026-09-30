@@ -1,7 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  AI_DAILY_SOFT_LIMIT,
+  aiCacheGet,
+  aiCacheKey,
+  aiCacheSet,
+  aiDailyCallCount,
+  aiThrottleAllowed,
+  dailyLimitMessage,
+  incrementAiDailyCalls,
+  throttleMessage,
+} from "@/lib/aiQuota";
 
+// gemini-flash-latest: rolling alias for the newest stable Flash model.
+// Free-tier quota is per MODEL, so this pool is separate from (and survives
+// the exhaustion of) any pinned model like gemini-3.6-flash.
 const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
 const FACT_CHECK_URL =
   "https://factchecktools.googleapis.com/v1alpha1/claims:search";
 
@@ -52,16 +66,48 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const { text, lang, imageData, imageMimeType } = (await request.json()) as {
+    const { text, lang, imageData, imageMimeType, sessionId } = (await request.json()) as {
       text: string;
       lang: string;
       imageData?: string;
       imageMimeType?: string;
+      sessionId?: string;
     };
 
     if (!text?.trim() && !imageData) {
       return NextResponse.json({ result: null });
     }
+
+    // ---- Response cache: identical (or near-identical) input is served
+    // instantly from Supabase without spending a Gemini free-tier call.
+    const cacheKey = aiCacheKey("news", lang, text ?? "", imageData ?? null);
+    const cachedResult = await aiCacheGet<Record<string, unknown>>(cacheKey);
+    if (cachedResult) {
+      return NextResponse.json({ result: cachedResult, apiKeyMissing: false, cached: true });
+    }
+
+    // ---- Quota guardrails (only for calls that would actually hit Gemini):
+    // soft daily cap first (friendly message instead of a raw 429), then the
+    // per-user 2-minute cooldown so one visitor can't drain the day's budget.
+    if ((await aiDailyCallCount()) >= AI_DAILY_SOFT_LIMIT) {
+      return NextResponse.json({
+        result: null,
+        apiKeyMissing: false,
+        error: dailyLimitMessage(lang),
+        errorType: "daily_limit",
+      });
+    }
+    if (!(await aiThrottleAllowed(sessionId ?? "anonymous"))) {
+      return NextResponse.json({
+        result: null,
+        apiKeyMissing: false,
+        error: throttleMessage(lang),
+        errorType: "throttled",
+      });
+    }
+    // Reserve the slot before calling — failed calls still count against the
+    // Google quota, so the counter must match reality.
+    await incrementAiDailyCalls();
 
     const langName = lang === "hi" ? "Hindi" : lang === "mr" ? "Marathi" : "English";
 
@@ -142,7 +188,7 @@ Respond in this exact JSON format (no markdown, no code fences):
             : "unavailable";
       const friendly =
         errorType === "rate_limit"
-          ? "Rate limit reached — please wait a minute and try again."
+          ? "Gemini quota reached — please try again in a little while."
           : errorType === "model_overloaded"
             ? "The AI model is temporarily overloaded — please try again in a minute."
             : "AI analysis unavailable — please try again later.";
@@ -167,27 +213,25 @@ Respond in this exact JSON format (no markdown, no code fences):
       const validVerdicts = ["likely real", "likely fake", "unverifiable", "misleading / needs context"];
       const validConfidence = ["low", "medium", "high"];
 
-      return NextResponse.json({
-        result: {
-          verdict: validVerdicts.includes(parsed.verdict) ? parsed.verdict : "unverifiable",
-          confidence: validConfidence.includes(parsed.confidence) ? parsed.confidence : "low",
-          reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "",
-          redFlags: Array.isArray(parsed.redFlags) ? parsed.redFlags : [],
-          suggestion: typeof parsed.suggestion === "string" ? parsed.suggestion : "",
-        },
-        apiKeyMissing: false,
-      });
+      const result = {
+        verdict: validVerdicts.includes(parsed.verdict) ? parsed.verdict : "unverifiable",
+        confidence: validConfidence.includes(parsed.confidence) ? parsed.confidence : "low",
+        reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "",
+        redFlags: Array.isArray(parsed.redFlags) ? parsed.redFlags : [],
+        suggestion: typeof parsed.suggestion === "string" ? parsed.suggestion : "",
+      };
+      await aiCacheSet(cacheKey, text ?? "", result);
+      return NextResponse.json({ result, apiKeyMissing: false, cached: false });
     } catch {
-      return NextResponse.json({
-        result: {
-          verdict: "unverifiable",
-          confidence: "low",
-          reasoning: responseText.slice(0, 500),
-          redFlags: [],
-          suggestion: "",
-        },
-        apiKeyMissing: false,
-      });
+      const result = {
+        verdict: "unverifiable",
+        confidence: "low",
+        reasoning: responseText.slice(0, 500),
+        redFlags: [],
+        suggestion: "",
+      };
+      await aiCacheSet(cacheKey, text ?? "", result);
+      return NextResponse.json({ result, apiKeyMissing: false, cached: false });
     }
   } catch (error) {
     console.error("Gemini news-check route error:", error);

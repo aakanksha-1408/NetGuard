@@ -1,7 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  AI_DAILY_SOFT_LIMIT,
+  aiCacheGet,
+  aiCacheKey,
+  aiCacheSet,
+  aiDailyCallCount,
+  aiThrottleAllowed,
+  dailyLimitMessage,
+  incrementAiDailyCalls,
+  throttleMessage,
+} from "@/lib/aiQuota";
 
+// gemini-flash-latest: rolling alias for the newest stable Flash model.
+// Free-tier quota is per MODEL, so this pool is separate from (and survives
+// the exhaustion of) any pinned model like gemini-3.6-flash.
 const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,7 +28,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const { message, localResult, lang } = (await request.json()) as {
+    const { message, localResult, lang, sessionId } = (await request.json()) as {
       message: string;
       localResult: {
         riskScore: number;
@@ -24,11 +38,45 @@ export async function POST(request: NextRequest) {
         entities: Record<string, string[]>;
       };
       lang: string;
+      sessionId?: string;
     };
 
     if (!message?.trim()) {
       return NextResponse.json({ aiInsight: null });
     }
+
+    // ---- Response cache: same message (+same response language) is served
+    // instantly from Supabase without spending a Gemini free-tier call.
+    // localResult is deterministic for a given message, so it needs no part
+    // of the key.
+    const cacheKey = aiCacheKey("scam", lang, message);
+    const cachedInsight = await aiCacheGet<Record<string, unknown>>(cacheKey);
+    if (cachedInsight) {
+      return NextResponse.json({ aiInsight: cachedInsight, apiKeyMissing: false, cached: true });
+    }
+
+    // ---- Quota guardrails (only for calls that would actually hit Gemini):
+    // soft daily cap first (friendly message instead of a raw 429), then the
+    // per-user 2-minute cooldown so one visitor can't drain the day's budget.
+    if ((await aiDailyCallCount()) >= AI_DAILY_SOFT_LIMIT) {
+      return NextResponse.json({
+        aiInsight: null,
+        apiKeyMissing: false,
+        error: dailyLimitMessage(lang),
+        errorType: "daily_limit",
+      });
+    }
+    if (!(await aiThrottleAllowed(sessionId ?? "anonymous"))) {
+      return NextResponse.json({
+        aiInsight: null,
+        apiKeyMissing: false,
+        error: throttleMessage(lang),
+        errorType: "throttled",
+      });
+    }
+    // Reserve the slot before calling — failed calls still count against the
+    // Google quota, so the counter must match reality.
+    await incrementAiDailyCalls();
 
     const langName = lang === "hi" ? "Hindi" : lang === "mr" ? "Marathi" : "English";
 
@@ -85,10 +133,25 @@ Respond in this exact JSON format (no markdown, no code fences):
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Gemini API error:", errorText);
+      // Same 429/503-aware mapping as the news-check route, so the chatbot's
+      // AI panel can explain WHY the analysis failed.
+      const errorType =
+        response.status === 429
+          ? "rate_limit"
+          : response.status === 503
+            ? "model_overloaded"
+            : "unavailable";
+      const friendly =
+        errorType === "rate_limit"
+          ? "Gemini quota reached — please try again in a little while."
+          : errorType === "model_overloaded"
+            ? "The AI model is temporarily overloaded — please try again in a minute."
+            : "AI analysis unavailable — please try again later.";
       return NextResponse.json({
         aiInsight: null,
         apiKeyMissing: false,
-        error: "AI analysis unavailable",
+        error: friendly,
+        errorType,
       });
     }
 
@@ -102,29 +165,27 @@ Respond in this exact JSON format (no markdown, no code fences):
 
     try {
       const parsed = JSON.parse(text);
-      return NextResponse.json({
-        aiInsight: {
-          additionalInsights: parsed.additionalInsights ?? "",
-          socialEngineeringTechniques: parsed.socialEngineeringTechniques ?? [],
-          scammerIntent: parsed.scammerIntent ?? "",
-          subtleRedFlags: parsed.subtleRedFlags ?? [],
-          detailedExplanation: parsed.detailedExplanation ?? "",
-          recommendedActions: parsed.recommendedActions ?? [],
-        },
-        apiKeyMissing: false,
-      });
+      const aiInsight = {
+        additionalInsights: parsed.additionalInsights ?? "",
+        socialEngineeringTechniques: parsed.socialEngineeringTechniques ?? [],
+        scammerIntent: parsed.scammerIntent ?? "",
+        subtleRedFlags: parsed.subtleRedFlags ?? [],
+        detailedExplanation: parsed.detailedExplanation ?? "",
+        recommendedActions: parsed.recommendedActions ?? [],
+      };
+      await aiCacheSet(cacheKey, message, aiInsight);
+      return NextResponse.json({ aiInsight, apiKeyMissing: false, cached: false });
     } catch {
-      return NextResponse.json({
-        aiInsight: {
-          additionalInsights: text.slice(0, 500),
-          socialEngineeringTechniques: [],
-          scammerIntent: "",
-          subtleRedFlags: [],
-          detailedExplanation: text.slice(0, 500),
-          recommendedActions: [],
-        },
-        apiKeyMissing: false,
-      });
+      const aiInsight = {
+        additionalInsights: text.slice(0, 500),
+        socialEngineeringTechniques: [],
+        scammerIntent: "",
+        subtleRedFlags: [],
+        detailedExplanation: text.slice(0, 500),
+        recommendedActions: [],
+      };
+      await aiCacheSet(cacheKey, message, aiInsight);
+      return NextResponse.json({ aiInsight, apiKeyMissing: false, cached: false });
     }
   } catch (error) {
     console.error("Gemini investigate route error:", error);
