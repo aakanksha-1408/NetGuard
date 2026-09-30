@@ -241,6 +241,8 @@ export const en: Dict = {
   },
   scamChatbot: {
     badge: "Scam Investigator",
+    analysisUnavailable: "Analysis temporarily unavailable — please try again in a minute.",
+    tryAgain: "Try Again",
     title: "NetGuard Scam Investigator",
     description: "Paste a suspicious message \u2014 get an instant risk assessment with detailed red flags, evidence, and action steps.",
     warning: "Do not paste real passwords, OTPs, full card numbers, or PINs. Replace them with [REDACTED] before investigating.",

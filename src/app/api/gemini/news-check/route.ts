@@ -132,10 +132,25 @@ Respond in this exact JSON format (no markdown, no code fences):
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Gemini news-check API error:", errorText);
+      // Surface WHY the analysis failed so the UI can show a useful message:
+      // 429 = free-tier quota (recovers after ~1 min), 503 = Google-side overload.
+      const errorType =
+        response.status === 429
+          ? "rate_limit"
+          : response.status === 503
+            ? "model_overloaded"
+            : "unavailable";
+      const friendly =
+        errorType === "rate_limit"
+          ? "Rate limit reached — please wait a minute and try again."
+          : errorType === "model_overloaded"
+            ? "The AI model is temporarily overloaded — please try again in a minute."
+            : "AI analysis unavailable — please try again later.";
       return NextResponse.json({
         result: null,
         apiKeyMissing: false,
-        error: "AI analysis unavailable",
+        error: friendly,
+        errorType,
       });
     }
 

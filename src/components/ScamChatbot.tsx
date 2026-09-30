@@ -238,6 +238,7 @@ export default function ScamChatbot() {
   const [aiInsight, setAiInsight] = useState<AiInsight | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [newsError, setNewsError] = useState<string | null>(null);
   const [imageData, setImageData] = useState<string | null>(null);
   const [imageMime, setImageMime] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -360,6 +361,7 @@ export default function ScamChatbot() {
       setInput(text);
       setView("scanning");
       setCopied(false);
+      setNewsError(null);
 
       // Simulate analysis delay
       await new Promise((r) => setTimeout(r, 2000));
@@ -401,18 +403,18 @@ export default function ScamChatbot() {
             }
           }
         } else if (data.apiKeyMissing) {
-          setAiError("AI fact-checking not configured. Add GOOGLE_GEMINI_API_KEY to enable.");
-          setView("input");
+          setNewsError("AI fact-checking is not configured on this site.");
+          setView("newsResult");
         } else {
-          setAiError(data.error || "AI fact-checking temporarily unavailable.");
-          setView("input");
+          setNewsError(data.error || t.scamChatbot.analysisUnavailable);
+          setView("newsResult");
         }
       } catch {
-        setAiError("AI fact-checking temporarily unavailable. Try again later.");
-        setView("input");
+        setNewsError(t.scamChatbot.analysisUnavailable);
+        setView("newsResult");
       }
     },
-    [user, lang, imageData, imageMime],
+    [user, lang, imageData, imageMime, t],
   );
 
   async function loadHistory() {
@@ -486,7 +488,7 @@ export default function ScamChatbot() {
         <div className="flex shrink-0 gap-2">
           {view !== "input" && view !== "scanning" && (
             <button
-              onClick={() => { setView("input"); setResult(null); setNewsResult(null); setInput(""); setUrl(""); removeImage(); }}
+              onClick={() => { setView("input"); setResult(null); setNewsResult(null); setNewsError(null); setInput(""); setUrl(""); removeImage(); }}
               className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium text-zinc-700 transition hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-300"
             >
               {t.scamChatbot.newInvestigation}
@@ -945,6 +947,29 @@ export default function ScamChatbot() {
             >
               Scan a QR Code →
             </Link>
+          </div>
+        </div>
+      )}
+
+      {/* ---- NEWS CHECK ERROR VIEW (API returned result:null + error) ---- */}
+      {view === "newsResult" && !newsResult && newsError && (
+        <div className="flex-1 space-y-6">
+          <div className="flex flex-col items-center gap-5 rounded-2xl border border-zinc-200 bg-white p-10 text-center dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-yellow-500 bg-yellow-950/30">
+              <span className="text-3xl font-bold text-yellow-400">!</span>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                {t.scamChatbot.analysisUnavailable}
+              </p>
+              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{newsError}</p>
+            </div>
+            <button
+              onClick={() => startNewsCheck(input)}
+              className="rounded-full bg-teal-500 px-6 py-2 text-sm font-semibold text-black transition hover:bg-teal-400"
+            >
+              {t.scamChatbot.tryAgain}
+            </button>
           </div>
         </div>
       )}
