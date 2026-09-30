@@ -217,6 +217,8 @@ Respond in this exact JSON format (no markdown, no code fences):
       await aiCacheSet(cacheKey, text ?? "", result);
       return NextResponse.json({ result, apiKeyMissing: false, cached: false });
     } catch {
+      // Malformed/truncated JSON from Gemini: serve a safe fallback but
+      // deliberately DO NOT cache it, so a retry can produce a real analysis.
       const result = {
         verdict: "unverifiable",
         confidence: "low",
@@ -224,7 +226,6 @@ Respond in this exact JSON format (no markdown, no code fences):
         redFlags: [],
         suggestion: "",
       };
-      await aiCacheSet(cacheKey, text ?? "", result);
       return NextResponse.json({ result, apiKeyMissing: false, cached: false });
     }
   } catch (error) {

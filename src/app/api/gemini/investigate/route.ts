@@ -169,6 +169,9 @@ Respond in this exact JSON format (no markdown, no code fences):
       await aiCacheSet(cacheKey, message, aiInsight);
       return NextResponse.json({ aiInsight, apiKeyMissing: false, cached: false });
     } catch {
+      // Gemini returned malformed/truncated JSON: serve a degraded insight but
+      // deliberately DO NOT cache it — the next attempt deserves a clean retry
+      // instead of being stuck with this fallback forever.
       const aiInsight = {
         additionalInsights: text.slice(0, 500),
         socialEngineeringTechniques: [],
@@ -177,7 +180,6 @@ Respond in this exact JSON format (no markdown, no code fences):
         detailedExplanation: text.slice(0, 500),
         recommendedActions: [],
       };
-      await aiCacheSet(cacheKey, message, aiInsight);
       return NextResponse.json({ aiInsight, apiKeyMissing: false, cached: false });
     }
   } catch (error) {
