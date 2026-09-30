@@ -132,7 +132,11 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
  * are tracked per model, so if the first model is exhausted or overloaded we
  * fall through to the next one instead of failing the user's request.
  */
-export const GEMINI_MODEL_POOL = ["gemini-flash-latest", "gemini-3.5-flash"];
+export const GEMINI_MODEL_POOL = [
+  "gemini-flash-latest",
+  "gemini-3.5-flash",
+  "gemini-flash-lite-latest",
+];
 
 /**
  * POSTs to generateContent trying each model in the pool. Returns the first
@@ -155,11 +159,8 @@ export async function callGeminiWithFallback(
       return { response, model };
     }
     last = { response, model };
-    try {
-      await response.text(); // drain before moving on
-    } catch {
-      /* ignore */
-    }
+    // NOTE: do NOT read response.text() here — if every model fails, the
+    // caller's !response.ok branch still needs to read this body once.
     console.error(`Gemini model ${model} unavailable (HTTP ${response.status}) — trying next in pool`);
   }
   return last!;
