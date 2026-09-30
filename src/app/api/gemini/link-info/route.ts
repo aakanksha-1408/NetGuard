@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
-// Switched to the gemini-flash-latest rolling alias: free-tier quota is per
-// MODEL, so this pool is separate from the exhausted gemini-3.6-flash one.
-const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
+import { callGeminiWithFallback } from "@/lib/aiQuota";
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,16 +32,14 @@ IMPORTANT: Respond ONLY in ${langName}. Keep the description to 1-2 sentences ma
 
 Respond with just the description text, nothing else (no JSON, no labels, no prefixes).`;
 
-    const response = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 150,
-        },
-      }),
+    // Model pool: if the first model is rate-limited or overloaded, the next
+    // one is tried automatically (per-model quota on Google's side).
+    const { response } = await callGeminiWithFallback(apiKey, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 150,
+      },
     });
 
     if (!response.ok) {

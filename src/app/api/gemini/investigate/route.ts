@@ -6,16 +6,11 @@ import {
   aiCacheSet,
   aiDailyCallCount,
   aiThrottleAllowed,
+  callGeminiWithFallback,
   dailyLimitMessage,
   incrementAiDailyCalls,
   throttleMessage,
 } from "@/lib/aiQuota";
-
-// gemini-flash-latest: rolling alias for the newest stable Flash model.
-// Free-tier quota is per MODEL, so this pool is separate from (and survives
-// the exhaustion of) any pinned model like gemini-3.6-flash.
-const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
 
 export async function POST(request: NextRequest) {
   try {
@@ -117,17 +112,15 @@ IMPORTANT: Respond ONLY in ${langName}. Do NOT translate URLs, phone numbers, UP
 Respond in this exact JSON format (no markdown, no code fences):
 {"additionalInsights":"2-3 sentence summary of what the AI found beyond the local analysis","socialEngineeringTechniques":["technique 1","technique 2"],"scammerIntent":"1-2 sentence description of what the scammer is trying to achieve","subtleRedFlags":["flag 1","flag 2"],"detailedExplanation":"3-5 sentence explanation of why this is suspicious, written in simple language","recommendedActions":["action 1","action 2","action 3"]}`;
 
-    const response = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 1024,
-          responseMimeType: "application/json",
-        },
-      }),
+    // Model pool: if the first model is rate-limited or overloaded (both are
+    // per-model on Google's side), the next one is tried automatically.
+    const { response } = await callGeminiWithFallback(apiKey, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 1024,
+        responseMimeType: "application/json",
+      },
     });
 
     if (!response.ok) {

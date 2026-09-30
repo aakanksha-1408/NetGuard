@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
-// Switched to the gemini-flash-latest rolling alias: free-tier quota is per
-// MODEL, so this pool is separate from the exhausted gemini-3.6-flash one.
-const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
+import { callGeminiWithFallback } from "@/lib/aiQuota";
 
 /** Recursively unwrap a value that may be a JSON-stringified string. */
 function sanitizeField(value: unknown): string {
@@ -93,17 +89,15 @@ Provide a clear, simple security explanation. CRITICAL RULES:
 Respond in this exact JSON format (no markdown, no code fences):
 {"contentType":"${contentType}","explanation":"2-3 short plain-text sentences about what this QR contains","safetyLevel":"Safe or Suspicious or Risky","safetyExplanation":"2-3 short plain-text sentences explaining why","potentialRisks":["short risk 1","short risk 2"],"recommendations":["short recommendation 1","short recommendation 2","short recommendation 3"]}`;
 
-    const response = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 2048,
-          responseMimeType: "application/json",
-        },
-      }),
+    // Model pool: if the first model is rate-limited or overloaded, the next
+    // one is tried automatically (per-model quota on Google's side).
+    const { response } = await callGeminiWithFallback(apiKey, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 2048,
+        responseMimeType: "application/json",
+      },
     });
 
     if (!response.ok) {

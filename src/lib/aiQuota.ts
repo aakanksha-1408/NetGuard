@@ -125,6 +125,46 @@ export async function aiThrottleAllowed(actorKey: string, windowSeconds = AI_THR
   }
 }
 
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+
+/**
+ * Ordered Gemini model pool. Free-tier quota AND Google-side overload (503)
+ * are tracked per model, so if the first model is exhausted or overloaded we
+ * fall through to the next one instead of failing the user's request.
+ */
+export const GEMINI_MODEL_POOL = ["gemini-flash-latest", "gemini-3.5-flash"];
+
+/**
+ * POSTs to generateContent trying each model in the pool. Returns the first
+ * response that is either OK or a non-retryable error (400/403 etc. won't
+ * change between models). If every model is 429/503, the LAST failed response
+ * is returned so the caller's error branch still produces a friendly message.
+ */
+export async function callGeminiWithFallback(
+  apiKey: string,
+  body: unknown,
+): Promise<{ response: Response; model: string }> {
+  let last: { response: Response; model: string } | null = null;
+  for (const model of GEMINI_MODEL_POOL) {
+    const response = await fetch(`${GEMINI_BASE}/${model}:generateContent?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (response.ok || (response.status !== 429 && response.status !== 503)) {
+      return { response, model };
+    }
+    last = { response, model };
+    try {
+      await response.text(); // drain before moving on
+    } catch {
+      /* ignore */
+    }
+    console.error(`Gemini model ${model} unavailable (HTTP ${response.status}) — trying next in pool`);
+  }
+  return last!;
+}
+
 // ---------------------------------------------------------------------------
 // Localized guardrail messages. The routes know the UI language from the
 // request body, so the friendly text comes back ready to display (same

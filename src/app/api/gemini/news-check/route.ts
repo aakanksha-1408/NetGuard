@@ -6,16 +6,12 @@ import {
   aiCacheSet,
   aiDailyCallCount,
   aiThrottleAllowed,
+  callGeminiWithFallback,
   dailyLimitMessage,
   incrementAiDailyCalls,
   throttleMessage,
 } from "@/lib/aiQuota";
 
-// gemini-flash-latest: rolling alias for the newest stable Flash model.
-// Free-tier quota is per MODEL, so this pool is separate from (and survives
-// the exhaustion of) any pinned model like gemini-3.6-flash.
-const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
 const FACT_CHECK_URL =
   "https://factchecktools.googleapis.com/v1alpha1/claims:search";
 
@@ -162,17 +158,15 @@ Respond in this exact JSON format (no markdown, no code fences):
       });
     }
 
-    const response = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 1024,
-          responseMimeType: "application/json",
-        },
-      }),
+    // Model pool: if the first model is rate-limited or overloaded (both are
+    // per-model on Google's side), the next one is tried automatically.
+    const { response } = await callGeminiWithFallback(apiKey, {
+      contents: [{ parts }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 1024,
+        responseMimeType: "application/json",
+      },
     });
 
     if (!response.ok) {
