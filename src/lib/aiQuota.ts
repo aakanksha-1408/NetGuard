@@ -11,8 +11,13 @@
 import { createHash } from "crypto";
 import { getAdminClient } from "./supabase";
 
-/** Soft cap: stop real calls at 18/20 so users see a friendly message, not a raw Gemini 429. */
-export const AI_DAILY_SOFT_LIMIT = 18;
+/**
+ * Soft daily cap on REAL calls. Sized for the model pool: 3 free models x 20
+ * req/day = 60 total capacity; 40 guarantees two pools' worth of service and
+ * leaves the third as an overload reserve (the counter tracks route calls,
+ * and a fully-failing call can consume one request from each pool).
+ */
+export const AI_DAILY_SOFT_LIMIT = 40;
 /** Cooldown between real (non-cached) Gemini calls for one user/session. */
 export const AI_THROTTLE_WINDOW_SECONDS = 120;
 /** Cached analyses older than this are treated as misses and re-generated. */

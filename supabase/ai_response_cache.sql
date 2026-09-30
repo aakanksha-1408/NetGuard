@@ -10,9 +10,11 @@
 --                       A cache hit returns the previous analysis WITHOUT
 --                       calling Gemini at all (free + instant).
 --   ai_call_counters  : one row per day counting REAL (non-cached) Gemini
---                       calls. At 18 the API routes proactively return a
---                       friendly "daily limit reached" message instead of
---                       burning the 19th/20th slot on a raw Gemini 429.
+--                       calls. At the soft limit (AI_DAILY_SOFT_LIMIT in
+--                       src/lib/aiQuota.ts, currently 40 for the 3-model
+--                       pool) the API routes proactively return a friendly
+--                       "daily limit reached" message instead of burning the
+--                       free-tier pools on raw Gemini 429s.
 --   ai_call_throttle  : per user/session last real-call timestamp. Gives each
 --                       actor a 2-minute cooldown between NEW (uncached)
 --                       Gemini calls so one visitor can't drain the day's
