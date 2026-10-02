@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ScamHeatmap from "@/components/ScamHeatmap";
+import BackToHome from "@/components/BackToHome";
 import {
   BarChart,
   Bar,
@@ -295,6 +296,7 @@ export default function HeatmapPage() {
   if (reports.length === 0) {
     return (
       <div className="mx-auto max-w-5xl px-6 py-16 text-center">
+        <BackToHome className="mb-4" />
         <p className="text-4xl">📊</p>
         <h1 className="mt-4 text-2xl font-bold text-zinc-900 dark:text-zinc-50">Scam Heatmap</h1>
         <p className="mt-3 max-w-md mx-auto text-zinc-600 dark:text-zinc-400">
@@ -314,6 +316,7 @@ export default function HeatmapPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-16">
+      <BackToHome className="mb-6" />
       {/* Header */}
       <p className="text-sm font-medium text-teal-500">Analytics dashboard</p>
       <h1 className="mt-2 text-3xl font-bold text-zinc-900 dark:text-zinc-50">Scam Heatmap</h1>

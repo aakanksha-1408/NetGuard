@@ -108,6 +108,7 @@ Provide ADDITIONAL insights that the local rule-based analysis might have missed
 5. Clear, actionable recommended steps for the user
 
 IMPORTANT: Respond ONLY in ${langName}. Do NOT translate URLs, phone numbers, UPI IDs, or other technical identifiers.
+NEVER GUESS: do not claim a specific real company, station, government body, or person is behind the message unless the message itself provides verifiable evidence (an official domain, a known VPA, etc.). If the sender or organisation cannot be established, say so explicitly instead of inventing an identity. Never fabricate sources, URLs, or prior incidents.
 
 Respond in this exact JSON format (no markdown, no code fences):
 {"additionalInsights":"2-3 sentence summary of what the AI found beyond the local analysis","socialEngineeringTechniques":["technique 1","technique 2"],"scammerIntent":"1-2 sentence description of what the scammer is trying to achieve","subtleRedFlags":["flag 1","flag 2"],"detailedExplanation":"3-5 sentence explanation of why this is suspicious, written in simple language","recommendedActions":["action 1","action 2","action 3"]}`;

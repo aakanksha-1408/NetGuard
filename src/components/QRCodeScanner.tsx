@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import jsQR from "jsqr";
 import { analyzeQrContent, type QrScanResult } from "@/lib/qrScanner";
 import { runLinkCheck, type LinkCheckResult } from "@/lib/linkCheck";
+import { buildIdentification, type LinkMetaFacts, type GeoReverseFacts } from "@/lib/identification";
+import EvidencePanel from "@/components/EvidencePanel";
+import BackToHome from "@/components/BackToHome";
 import { supabase } from "@/lib/supabase";
 import type { User } from "@supabase/supabase-js";
 import { useLang } from "@/lib/i18n/context";
@@ -29,6 +32,10 @@ interface QrAiExplanation {
   recommendations: string[];
 }
 
+type LinkMeta = LinkMetaFacts;
+
+type GeoReverse = GeoReverseFacts;
+
 type View = "input" | "decoding" | "result" | "history";
 
 interface HistoryEntry {
@@ -41,31 +48,31 @@ interface HistoryEntry {
 /* ── Helpers ────────────────────────────────────────────────── */
 
 function verdictColor(v: string): string {
-  if (v === "Safe") return "text-teal-400";
-  if (v === "Suspicious") return "text-yellow-400";
-  return "text-red-400";
+  if (v === "Safe") return "text-teal-700 dark:text-teal-400";
+  if (v === "Suspicious") return "text-yellow-700 dark:text-yellow-400";
+  return "text-red-700 dark:text-red-400";
 }
 function verdictBg(v: string): string {
-  if (v === "Safe") return "border-teal-800 bg-teal-950/30";
-  if (v === "Suspicious") return "border-yellow-800 bg-yellow-950/20";
-  return "border-red-800 bg-red-950/20";
+  if (v === "Safe") return "border-teal-200 bg-teal-50 dark:border-teal-800 dark:bg-teal-950/30";
+  if (v === "Suspicious") return "border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/20";
+  return "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/20";
 }
 function contentTypeBadge(type: string): string {
   switch (type) {
-    case "url": return "bg-blue-500/20 text-blue-300 border-blue-800";
-    case "upi": return "bg-purple-500/20 text-purple-300 border-purple-800";
-    case "vcard": return "bg-cyan-500/20 text-cyan-300 border-cyan-800";
-    case "phone": return "bg-amber-500/20 text-amber-300 border-amber-800";
-    default: return "bg-zinc-500/20 text-zinc-300 border-zinc-700";
+    case "url": return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-800";
+    case "upi": return "bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-500/20 dark:text-purple-300 dark:border-purple-800";
+    case "vcard": return "bg-cyan-100 text-cyan-800 border-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-800";
+    case "phone": return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-800";
+    default: return "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-500/20 dark:text-zinc-300 dark:border-zinc-700";
   }
 }
 function assessmentBadge(a: string): string {
   switch (a) {
-    case "Safe": return "border-teal-800 bg-teal-950/30 text-teal-400";
-    case "Low Risk": return "border-green-800 bg-green-950/30 text-green-400";
-    case "Suspicious": return "border-yellow-800 bg-yellow-950/30 text-yellow-400";
-    case "High Risk": return "border-red-800 bg-red-950/30 text-red-400";
-    default: return "border-zinc-700 bg-zinc-900/50 text-zinc-400";
+    case "Safe": return "border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-400";
+    case "Low Risk": return "border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950/30 dark:text-green-400";
+    case "Suspicious": return "border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950/30 dark:text-yellow-400";
+    case "High Risk": return "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400";
+    default: return "border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-400";
   }
 }
 function assessmentIcon(a: string): string {
@@ -130,6 +137,11 @@ export default function QRCodeScanner() {
   const [aiExplanation, setAiExplanation] = useState<QrAiExplanation | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [linkMeta, setLinkMeta] = useState<LinkMeta | null>(null);
+  const [linkMetaBlocked, setLinkMetaBlocked] = useState(false);
+  const [metaLoading, setMetaLoading] = useState(false);
+  const [geoReverse, setGeoReverse] = useState<GeoReverse | null>(null);
+  const [geoLoading, setGeoLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -160,6 +172,28 @@ export default function QRCodeScanner() {
     sbThreats.length > 0 && linkCheckResult?.verdict !== "Likely fraud"
       ? "Likely fraud"
       : linkCheckResult?.verdict ?? "Safe";
+
+  // Evidence-based identification assembled from everything we actually
+  // observed (decoded QR, page metadata, geo lookup, security checks).
+  // Nothing here is guessed — names appear only when backed by evidence.
+  const identification = useMemo(
+    () =>
+      qrResult
+        ? buildIdentification(
+            {
+              qr: qrResult,
+              meta: linkMeta,
+              geoReverse,
+              linkVerdict: combinedLcVerdict,
+              sbThreatCount: sbThreats.length,
+              sbConfigured: !sbApiKeyMissing,
+              effectiveAssessment,
+            },
+            t,
+          )
+        : null,
+    [qrResult, linkMeta, geoReverse, combinedLcVerdict, sbThreats.length, sbApiKeyMissing, effectiveAssessment, t],
+  );
 
   async function handleFile(file: File) {
     setError(null);
@@ -198,6 +232,57 @@ export default function QRCodeScanner() {
       setView("result");
       saveToHistory(result);
 
+      // Peek inside the linked page (title / meta description / Open Graph)
+      // — free and fast, no AI quota. Runs in parallel with Safe Browsing.
+      let metaOk = false;
+      const metaPromise =
+        result.contentType === "url" && result.url
+          ? (async () => {
+              setMetaLoading(true);
+              try {
+                const mRes = await fetch("/api/link-meta", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ url: result.url }),
+                });
+                const mData = (await mRes.json()) as LinkMeta;
+                const hasContent =
+                  mData.ok && (mData.title || mData.description || (mData.pageType && mData.pageType !== "webpage"));
+                // Keep the facts (domain, https, hops) even when the page
+                // body was unreadable — the identification engine needs them.
+                setLinkMeta(mData);
+                if (hasContent) metaOk = true;
+                else setLinkMetaBlocked(true);
+              } catch {
+                setLinkMetaBlocked(true);
+              } finally {
+                setMetaLoading(false);
+              }
+            })()
+          : Promise.resolve();
+
+      // Location QR: reverse-geocode the coordinates through OpenStreetMap
+      // (free, no AI quota). Fail-open — if unavailable we simply say the
+      // place could not be verified instead of guessing from coordinates.
+      const geoPromise =
+        result.contentType === "geo" && result.geo
+          ? (async () => {
+              setGeoLoading(true);
+              try {
+                const gRes = await fetch("/api/geo-reverse", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ lat: result.geo!.lat, lng: result.geo!.lng }),
+                });
+                setGeoReverse((await gRes.json()) as GeoReverse);
+              } catch {
+                setGeoReverse({ ok: false });
+              } finally {
+                setGeoLoading(false);
+              }
+            })()
+          : Promise.resolve();
+
       // Call Safe Browsing for URL-type QR codes
       if (result.contentType === "url" && result.url) {
         setSbChecking(true);
@@ -218,11 +303,18 @@ export default function QRCodeScanner() {
         }
       }
 
-      // Call Gemini for AI explanation (all QR types)
-      setAiLoading(true);
-      setAiError(null);
-      setAiExplanation(null);
-      try {
+      await Promise.all([metaPromise, geoPromise]);
+
+      // Call Gemini for AI explanation ONLY as a last resort: when the QR
+      // holds a URL but the real page gave us nothing usable. Non-URL QR
+      // types (UPI, Wi-Fi, vCard, text) are already described locally by
+      // the classifier, so they no longer spend quota on every scan.
+      const needsAi = result.contentType === "url" && !metaOk;
+      if (needsAi) {
+        setAiLoading(true);
+        setAiError(null);
+        setAiExplanation(null);
+        try {
         const aiRes = await fetch("/api/gemini/qr-explain", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -250,10 +342,11 @@ export default function QRCodeScanner() {
         } else if (aiData.error) {
           setAiError("AI explanation temporarily unavailable.");
         }
-      } catch {
-        setAiError("AI explanation temporarily unavailable.");
-      } finally {
-        setAiLoading(false);
+        } catch {
+          setAiError("AI explanation temporarily unavailable.");
+        } finally {
+          setAiLoading(false);
+        }
       }
     } catch {
       setError(q.processError);
@@ -296,6 +389,11 @@ export default function QRCodeScanner() {
     setAiExplanation(null);
     setAiLoading(false);
     setAiError(null);
+    setLinkMeta(null);
+    setLinkMetaBlocked(false);
+    setMetaLoading(false);
+    setGeoReverse(null);
+    setGeoLoading(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -309,6 +407,7 @@ export default function QRCodeScanner() {
   /* ── Render: Input ─────────────────────────────────────────── */
   if (view === "input") return (
     <div className="mx-auto w-full max-w-2xl px-6 py-16">
+      <BackToHome className="mb-6" />
       <p className="text-sm font-medium text-teal-500">QR Code Scam Scanner</p>
       <h1 className="mt-2 text-3xl font-bold text-zinc-900 dark:text-zinc-50">Scan a QR Code</h1>
       <p className="mt-3 text-zinc-600 dark:text-zinc-400">
@@ -362,10 +461,10 @@ export default function QRCodeScanner() {
       <div className="mt-8 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-200">What can be scanned</h2>
         <ul className="mt-3 space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
-          <li className="flex gap-2"><span className="text-teal-400">&#10003;</span> URLs — checked against Link Checker for scam indicators</li>
-          <li className="flex gap-2"><span className="text-teal-400">&#10003;</span> UPI payment requests — VPA and payee details parsed and flagged</li>
-          <li className="flex gap-2"><span className="text-teal-400">&#10003;</span> vCard contacts — decoded and displayed</li>
-          <li className="flex gap-2"><span className="text-teal-400">&#10003;</span> Phone numbers and plain text — displayed as-is</li>
+          <li className="flex gap-2"><span className="text-teal-600 dark:text-teal-400">&#10003;</span> URLs — checked against Link Checker for scam indicators</li>
+          <li className="flex gap-2"><span className="text-teal-600 dark:text-teal-400">&#10003;</span> UPI payment requests — VPA and payee details parsed and flagged</li>
+          <li className="flex gap-2"><span className="text-teal-600 dark:text-teal-400">&#10003;</span> vCard contacts — decoded and displayed</li>
+          <li className="flex gap-2"><span className="text-teal-600 dark:text-teal-400">&#10003;</span> Phone numbers and plain text — displayed as-is</li>
         </ul>
       </div>
 
@@ -374,7 +473,7 @@ export default function QRCodeScanner() {
         <section className="mt-10">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Your scan history</h2>
-            <button type="button" onClick={() => setView("history")} className="text-sm text-teal-400 hover:text-teal-300">View all →</button>
+            <button type="button" onClick={() => setView("history")} className="text-sm text-teal-700 hover:text-teal-600 dark:text-teal-400 dark:hover:text-teal-300">View all →</button>
           </div>
           <ul className="mt-4 space-y-3">
             {history.slice(0, 3).map(h => (
@@ -389,8 +488,6 @@ export default function QRCodeScanner() {
           </ul>
         </section>
       )}
-
-      <Link href="/" className="mt-10 inline-flex text-sm font-medium text-teal-400 hover:text-teal-300">← Back to home</Link>
     </div>
   );
 
@@ -405,6 +502,7 @@ export default function QRCodeScanner() {
   /* ── Render: History ───────────────────────────────────────── */
   if (view === "history") return (
     <div className="mx-auto w-full max-w-3xl px-6 py-16">
+      <BackToHome className="mb-6" />
       <p className="text-sm font-medium text-teal-500">QR Code Scam Scanner</p>
       <h1 className="mt-2 text-2xl font-bold text-zinc-900 dark:text-zinc-50">My Scan History</h1>
       {history.length === 0 ? (
@@ -437,12 +535,64 @@ export default function QRCodeScanner() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-16">
+      <BackToHome className="mb-6" />
       <p className="text-sm font-medium text-teal-500">QR Code Scam Scanner</p>
 
       {/* Description card */}
       <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">What does this QR code contain?</p>
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{q.whatContains}</p>
         <p className="mt-2 text-base leading-relaxed text-zinc-900 dark:text-zinc-100">{r.description}</p>
+
+        {/* Real page metadata — fetched for free, no AI needed */}
+        {r.contentType === "url" && metaLoading && (
+          <div className="mt-3 flex items-center gap-3">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-teal-500 border-t-transparent" />
+            <p className="text-sm text-zinc-400">{q.metaLoading}</p>
+          </div>
+        )}
+        {r.contentType === "url" && !metaLoading && linkMeta && (
+          <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{q.metaFromSite}</p>
+            {linkMeta.title && (
+              <p className="mt-1 text-sm font-semibold leading-relaxed text-zinc-900 dark:text-zinc-100">{linkMeta.title}</p>
+            )}
+            {linkMeta.description && (
+              <p className="mt-1 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">{linkMeta.description}</p>
+            )}
+            {linkMeta.siteName && (
+              <p className="mt-1 text-xs text-zinc-500">{q.metaSiteLabel}: {linkMeta.siteName}</p>
+            )}
+            {linkMeta.pageType && linkMeta.pageType !== "webpage" && (
+              <p className="mt-1 text-xs font-medium text-yellow-500 dark:text-yellow-400">
+                {q.pageTypeLine.replace("{type}", linkMeta.pageType.toUpperCase())}
+              </p>
+            )}
+            {linkMeta.adult && (
+              <p className="mt-1 text-sm font-semibold text-red-500 dark:text-red-400">⚠ {q.adultWarning}</p>
+            )}
+          </div>
+        )}
+        {/* Location QR: verified place, if the map database gave one */}
+        {r.contentType === "geo" && r.geo && (
+          <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t.ident.typeGeo}</p>
+            <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              {geoLoading
+                ? t.qrScanner.metaLoading
+                : geoReverse?.ok && geoReverse.address
+                  ? geoReverse.address
+                  : r.geo.label
+                    ? `${r.geo.label} — ${t.ident.cannotGeo}`
+                    : t.ident.cannotGeo}
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              {t.ident.evCoords.replace("{lat}", r.geo.lat.toFixed(5)).replace("{lng}", r.geo.lng.toFixed(5))}
+            </p>
+          </div>
+        )}
+        {r.contentType === "url" && !metaLoading && linkMetaBlocked && (
+          <p className="mt-3 text-xs leading-relaxed text-zinc-500">{q.cannotSeeInside}</p>
+        )}
       </div>
 
       {/* Detected Type + Security Assessment */}
@@ -463,6 +613,12 @@ export default function QRCodeScanner() {
           )}
         </div>
       </div>
+
+      {/* Evidence-based identification: what it is, who it belongs to,
+          how confident we are, and what could NOT be verified */}
+      {identification && (r.contentType !== "url" || !metaLoading) && (
+        <EvidencePanel identification={identification} />
+      )}
 
       {/* Why? */}
       {r.assessmentReasons.length > 0 && (
@@ -512,7 +668,7 @@ export default function QRCodeScanner() {
             {r.upi.amount && (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
                 <p className="text-xs text-zinc-500">Amount</p>
-                <p className="mt-1 text-sm font-semibold text-zinc-100">
+                <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                   {r.upi.currency === "INR" ? "\u20B9" : r.upi.currency ? `${r.upi.currency} ` : ""}{r.upi.amount}
                 </p>
               </div>
@@ -603,26 +759,26 @@ export default function QRCodeScanner() {
       {/* URL: Link Checker detailed verdict */}
       {r.contentType === "url" && linkCheckResult && (
         <div className={`mt-6 rounded-2xl border p-6 ${verdictBg(combinedLcVerdict)}`}>
-          <p className="text-sm font-medium text-zinc-400">Link Checker Verdict</p>
+          <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Link Checker Verdict</p>
           <p className={`mt-1 text-2xl font-bold ${verdictColor(combinedLcVerdict)}`}>
             {combinedLcVerdict}
           </p>
           {combinedLcVerdict !== linkCheckResult.verdict && (
-            <p className="mt-1 text-xs text-red-400">
+            <p className="mt-1 text-xs text-red-600 dark:text-red-400">
               Upgraded based on Google Safe Browsing detection
             </p>
           )}
           {linkCheckResult.flags.length > 0 && (
             <ul className="mt-4 space-y-2">
               {linkCheckResult.flags.map((f, i) => (
-                <li key={i} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                <li key={i} className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
                   <div className="flex items-start gap-2">
                     <span className="mt-0.5 text-sm">
                       {f.level === "high" ? "🔴" : f.level === "medium" ? "🟠" : "🟡"}
                     </span>
                     <div>
-                      <p className="text-sm font-medium text-zinc-200">{f.category}</p>
-                      <p className="mt-0.5 text-xs text-zinc-400">{f.explanation}</p>
+                      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-200">{f.category}</p>
+                      <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{f.explanation}</p>
                     </div>
                   </div>
                 </li>
@@ -641,7 +797,7 @@ export default function QRCodeScanner() {
           )}
           <p className="mt-4 text-xs text-zinc-500">
             Analyzed using NetGuard&apos;s Link Checker.{" "}
-            <Link href="/link-checker" className="text-teal-400 hover:text-teal-300">
+            <Link href="/link-checker" className="text-teal-700 hover:text-teal-600 dark:text-teal-400 dark:hover:text-teal-300">
               Open Link Checker →
             </Link>
           </p>
@@ -685,7 +841,7 @@ export default function QRCodeScanner() {
             <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
               <div className="flex items-center gap-3">
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-teal-500 border-t-transparent" />
-                <p className="text-sm text-zinc-400">Checking URL reputation with Google Safe Browsing...</p>
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">Checking URL reputation with Google Safe Browsing...</p>
               </div>
             </div>
           )}
@@ -694,18 +850,18 @@ export default function QRCodeScanner() {
               <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Google Safe Browsing</p>
               {sbThreats.length > 0 ? (
                 <div className="mt-2">
-                  <p className="text-sm font-semibold text-red-400">⛔ URL flagged as dangerous</p>
+                  <p className="text-sm font-semibold text-red-600 dark:text-red-400">⛔ URL flagged as dangerous</p>
                   <ul className="mt-2 space-y-1">
                     {sbThreats.map((threat, i) => (
-                      <li key={i} className="text-xs text-zinc-400">
-                        <span className="font-medium text-red-300">{threat.threatType}</span>
+                      <li key={i} className="text-xs text-zinc-600 dark:text-zinc-400">
+                        <span className="font-medium text-red-700 dark:text-red-300">{threat.threatType}</span>
                         {threat.url && <span className="text-zinc-500"> — {threat.url}</span>}
                       </li>
                     ))}
                   </ul>
                 </div>
               ) : (
-                <p className="mt-1 text-sm text-teal-300">✓ No known threats found for this URL</p>
+                <p className="mt-1 text-sm text-teal-700 dark:text-teal-300">✓ No known threats found for this URL</p>
               )}
             </div>
           )}
@@ -737,9 +893,9 @@ export default function QRCodeScanner() {
           </h2>
           <div className="mt-3 flex items-center gap-2">
             <span className={`rounded-full px-3 py-1 text-xs font-bold ${
-              aiExplanation.safetyLevel === "Risky" ? "bg-red-500/20 text-red-300" :
-              aiExplanation.safetyLevel === "Suspicious" ? "bg-yellow-500/20 text-yellow-300" :
-              "bg-teal-500/20 text-teal-300"
+              aiExplanation.safetyLevel === "Risky" ? "bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-300" :
+              aiExplanation.safetyLevel === "Suspicious" ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/20 dark:text-yellow-300" :
+              "bg-teal-100 text-teal-800 dark:bg-teal-500/20 dark:text-teal-300"
             }`}>
               {aiExplanation.safetyLevel}
             </span>
@@ -765,10 +921,10 @@ export default function QRCodeScanner() {
           )}
           {aiExplanation.recommendations.length > 0 && (
             <div className="mt-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-teal-400">Recommendations</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-teal-700 dark:text-teal-400">Recommendations</p>
               <ol className="mt-2 space-y-1">
                 {aiExplanation.recommendations.map((rec, i) => (
-                  <li key={i} className="flex gap-2 text-sm text-zinc-300">
+                  <li key={i} className="flex gap-2 text-sm text-zinc-700 dark:text-zinc-300">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-100 text-[10px] font-bold text-teal-700 dark:bg-teal-950 dark:text-teal-400">{i + 1}</span>
                     {rec}
                   </li>
@@ -783,6 +939,34 @@ export default function QRCodeScanner() {
           <p className="text-xs text-zinc-500">{aiError}</p>
         </div>
       )}
+
+      {/* Plain-language conclusion: what the QR contains + what to do */}
+      {(r.contentType !== "url" || !metaLoading) && (() => {
+        const conclLine =
+          effectiveAssessment === "High Risk" ? q.conclHighRisk :
+          effectiveAssessment === "Suspicious" ? q.conclSuspicious :
+          effectiveAssessment === "Safe" ? q.conclSafe :
+          effectiveAssessment === "Low Risk" ? q.conclLowRisk :
+          q.conclUnknown;
+        const whatLine =
+          r.contentType === "url" && linkMeta?.title
+            ? q.conclOpensPage.replace("{title}", linkMeta.title)
+            : qrDescription(r, t);
+        return (
+          <div className={`mt-6 rounded-2xl border p-6 ${assessmentBadge(effectiveAssessment)}`}>
+            <h2 className="text-sm font-semibold uppercase tracking-wide opacity-70">💬 {q.conclHeading}</h2>
+            <p className="mt-3 text-base leading-relaxed font-medium text-zinc-900 dark:text-zinc-100">
+              {whatLine}
+            </p>
+            <p className="mt-2 text-base leading-relaxed font-medium text-zinc-900 dark:text-zinc-100">
+              {conclLine}
+            </p>
+            {linkMeta?.adult && (
+              <p className="mt-2 text-sm font-semibold text-red-500 dark:text-red-400">⚠ {q.adultWarning}</p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Disclaimer */}
       <div className="mt-6 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
@@ -805,7 +989,7 @@ export default function QRCodeScanner() {
         {r.contentType === "url" && (
           <Link
             href="/link-checker"
-            className="rounded-full border border-teal-700 px-5 py-2 text-sm font-medium text-teal-400 transition hover:bg-teal-950"
+            className="rounded-full border border-teal-300 px-5 py-2 text-sm font-medium text-teal-700 transition hover:border-teal-500 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-950"
           >
             Open Link Checker →
           </Link>
@@ -813,7 +997,7 @@ export default function QRCodeScanner() {
         {(effectiveAssessment === "Suspicious" || effectiveAssessment === "High Risk" || r.contentType === "text") && (
           <Link
             href="/chatbot"
-            className="rounded-full border border-teal-700 px-5 py-2 text-sm font-medium text-teal-400 transition hover:bg-teal-950"
+            className="rounded-full border border-teal-300 px-5 py-2 text-sm font-medium text-teal-700 transition hover:border-teal-500 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-950"
           >
             Investigate with Scam Chatbot →
           </Link>
@@ -821,13 +1005,11 @@ export default function QRCodeScanner() {
         <button
           type="button"
           onClick={handleReset}
-          className="rounded-full border border-zinc-700 px-5 py-2 text-sm font-medium text-zinc-300 transition hover:border-teal-600 hover:text-teal-400"
+          className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium text-zinc-700 transition hover:border-teal-500 hover:text-teal-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:text-teal-400"
         >
           ← Scan Another QR Code
         </button>
       </div>
-
-      <Link href="/" className="mt-8 inline-flex text-sm font-medium text-teal-400 hover:text-teal-300">← Back to home</Link>
     </div>
   );
 }

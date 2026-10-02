@@ -22,5 +22,6 @@ export interface Dict {
   heatmap: Record<string, any>;
   safetyScanner: Record<string, any>;
   chatbot: Record<string, string>;
+  ident: Record<string, string>;
   lib: Record<string, any>;
 }

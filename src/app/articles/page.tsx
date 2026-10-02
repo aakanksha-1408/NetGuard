@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import BackToHome from "@/components/BackToHome";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import type { User } from "@supabase/supabase-js";
@@ -114,6 +115,7 @@ function ArticlesContent() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-16">
+      <BackToHome className="mb-6" />
       <p className="text-sm font-medium text-teal-500">{t.articles.badge}</p>
       <h1 className="mt-2 text-3xl font-bold text-zinc-900 dark:text-zinc-50">
         {t.articles.title}

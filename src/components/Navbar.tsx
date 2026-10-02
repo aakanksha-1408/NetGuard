@@ -84,7 +84,7 @@ export default function Navbar() {
     <header className="sticky top-0 z-50 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         <Link href="/" className="flex items-center gap-2">
-          <img src="/logo.png" alt="NetGuard logo" className="h-12 w-12 object-contain" />
+          <img src="/logo.png?v=2" alt="NetGuard logo" className="h-12 w-12 object-contain" />
           <span className="text-lg font-bold text-zinc-900 dark:text-white">NetGuard</span>
         </Link>
 
@@ -127,18 +127,36 @@ export default function Navbar() {
             )}
           </div>
 
-          <select
-            value={lang}
-            onChange={(e) => setLang(e.target.value as Lang)}
-            className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-700 outline-none transition focus:border-teal-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-            aria-label={t.nav.language}
-          >
-            {LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.label}
-              </option>
-            ))}
-          </select>
+          <div className="relative">
+            <select
+              value={lang}
+              onChange={(e) => setLang(e.target.value as Lang)}
+              className="appearance-none rounded-lg border border-zinc-300 bg-white py-1.5 pl-2 pr-7 text-xs text-zinc-700 outline-none transition focus:border-teal-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+              aria-label={t.nav.language}
+            >
+              {LANGUAGES.map((l) => (
+                <option
+                  key={l.code}
+                  value={l.code}
+                  className="bg-white text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
+                >
+                  {l.label}
+                </option>
+              ))}
+            </select>
+            <svg
+              className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500 dark:text-zinc-400"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                fillRule="evenodd"
+                d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </div>
 
           {user ? (
             <>
@@ -203,18 +221,36 @@ export default function Navbar() {
           </ul>
 
           <div className="mt-4 flex items-center justify-between gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-            <select
-              value={lang}
-              onChange={(e) => setLang(e.target.value as Lang)}
-              className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-700 outline-none transition focus:border-teal-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-              aria-label={t.nav.language}
-            >
-              {LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <select
+                value={lang}
+                onChange={(e) => setLang(e.target.value as Lang)}
+                className="appearance-none rounded-lg border border-zinc-300 bg-white py-1.5 pl-2 pr-7 text-xs text-zinc-700 outline-none transition focus:border-teal-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                aria-label={t.nav.language}
+              >
+                {LANGUAGES.map((l) => (
+                  <option
+                    key={l.code}
+                    value={l.code}
+                    className="bg-white text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
+                  >
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+              <svg
+                className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500 dark:text-zinc-400"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </div>
 
             {user ? (
               <button

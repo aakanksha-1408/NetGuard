@@ -146,7 +146,8 @@ export function qrDescription(r: QrScanResult, t: Dict): string {
   const q = t.qrScanner;
   switch (r.contentType) {
     case "url": {
-      let desc = q.descUrl;
+      let desc = r.hiddenLink ? q.descHiddenLink : "";
+      desc += q.descUrl;
       if (r.url) {
         try {
           desc += interpolate(q.descUrlHost, { host: new URL(r.url).hostname });
@@ -158,7 +159,8 @@ export function qrDescription(r: QrScanResult, t: Dict): string {
       return desc;
     }
     case "upi": {
-      let desc = q.descUpi;
+      let desc = r.hiddenLink ? q.descHiddenLink : "";
+      desc += q.descUpi;
       if (r.upi?.payeeName) desc += interpolate(q.descUpiName, { name: r.upi.payeeName });
       if (r.upi?.amount) {
         const amount = `${r.upi.currency === "INR" ? "₹" : r.upi.currency ? `${r.upi.currency} ` : ""}${r.upi.amount}`;
@@ -181,6 +183,10 @@ export function qrDescription(r: QrScanResult, t: Dict): string {
     case "encoded":
       return q.descEncoded;
     default:
+      if (r.decodedText) {
+        const preview = r.decodedText.length > 100 ? r.decodedText.slice(0, 100) + "..." : r.decodedText;
+        return interpolate(q.descTextDecoded, { text: preview });
+      }
       return q.descText;
   }
 }
@@ -227,6 +233,7 @@ export function qrReasons(
       else if (r.securityAssessment === "Suspicious") reasons.push(q.reasonLcSuspicious);
       else if (r.securityAssessment === "Safe") reasons.push(q.reasonLcSafe);
       else reasons.push(q.reasonUrlUnable);
+      if (r.hiddenLink) reasons.push(q.reasonHiddenLink);
       if (linkFlags) {
         for (const flag of linkFlags) {
           reasons.push(`${translateCategory(flag.tipKey, t)}: ${translateFlagExplanation(flag, t)}`);
@@ -250,7 +257,7 @@ export function qrReasons(
       return list;
     }
     case "encoded":
-      return [q.reasonEncoded];
+      return [q.reasonEncoded, q.reasonEncoded2];
     default:
       if (r.securityAssessment === "Suspicious") return [q.reasonText, q.reasonTextScam];
       return [q.reasonText];

@@ -7,6 +7,7 @@
   --card-border: #e4e4e7;
   --muted: #71717a;
   --section-alt: #f4f4f5;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -24,6 +25,7 @@
     --card-border: #3f3f46;
     --muted: #a1a1aa;
     --section-alt: #18181b;
+    color-scheme: dark;
   }
 }
 

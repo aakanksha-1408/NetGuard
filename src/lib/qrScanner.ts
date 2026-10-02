@@ -2,7 +2,7 @@
 // Decoded QR content is classified as URL / UPI / vCard / phone / text.
 // For URLs: the component calls runLinkCheck() from linkCheck.ts — no duplicate scanning.
 
-export type QrContentType = "url" | "upi" | "vcard" | "phone" | "wifi" | "text" | "encoded";
+export type QrContentType = "url" | "upi" | "vcard" | "phone" | "wifi" | "geo" | "email" | "app" | "text" | "encoded";
 
 export interface UpiField {
   /** Payee VPA (pa) — e.g. "merchant@bank" */
@@ -41,6 +41,19 @@ export interface VCardData {
   raw: string;
 }
 
+export interface GeoData {
+  lat: number;
+  lng: number;
+  /** Optional place label embedded in the geo: URI (self-declared!) */
+  label: string | null;
+}
+
+export interface EmailData {
+  address: string;
+  subject: string | null;
+  body: string | null;
+}
+
 export interface QrScanResult {
   contentType: QrContentType;
   /** The raw decoded string from the QR code */
@@ -57,6 +70,10 @@ export interface QrScanResult {
   url: string | null;
   /** Wi-Fi parsed data (only when contentType === "wifi") */
   wifi: WifiData | null;
+  /** Geo coordinates (only when contentType === "geo") */
+  geo: GeoData | null;
+  /** Email address (only when contentType === "email") */
+  email: EmailData | null;
   /** Human-readable content-type label */
   contentTypeLabel: string;
   /** Human-readable description of what the QR code contains */
@@ -65,6 +82,10 @@ export interface QrScanResult {
   securityAssessment: string;
   /** Reasons supporting the security assessment */
   assessmentReasons: string[];
+  /** True when the real content was hidden inside encoded (scrambled) data */
+  hiddenLink: boolean;
+  /** Decoded readable text, when the encoded content turned out to be text */
+  decodedText: string | null;
 }
 
 /* ── Content-type detection ──────────────────────────────────── */
@@ -75,14 +96,21 @@ const VCARD_REGEX = /^BEGIN:VCARD/i;
 const PHONE_REGEX = /^(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}$/;
 const WIFI_REGEX = /^WIFI:/i;
 const BASE64_REGEX = /^[A-Za-z0-9+/]{16,}={0,2}$/;
+const GEO_REGEX = /^geo:/i;
+const MAILTO_REGEX = /^mailto:/i;
+const TEL_REGEX = /^tel:/i;
+const APP_SCHEME_REGEX = /^(intent:\/\/|market:\/\/|itms-apps:\/\/|https?:\/\/(play\.google\.com|apps\.apple\.com)\/)/i;
 
 function detectContentType(raw: string): QrContentType {
   const trimmed = raw.trim();
   if (UPI_REGEX.test(trimmed)) return "upi";
   if (WIFI_REGEX.test(trimmed)) return "wifi";
+  if (GEO_REGEX.test(trimmed)) return "geo";
+  if (MAILTO_REGEX.test(trimmed)) return "email";
+  if (APP_SCHEME_REGEX.test(trimmed)) return "app";
   if (URL_REGEX.test(trimmed)) return "url";
   if (VCARD_REGEX.test(trimmed)) return "vcard";
-  if (PHONE_REGEX.test(trimmed)) return "phone";
+  if (TEL_REGEX.test(trimmed) || PHONE_REGEX.test(trimmed.replace(/^tel:/i, ""))) return "phone";
   if (isEncodedData(trimmed)) return "encoded";
   return "text";
 }
@@ -94,9 +122,43 @@ function contentTypeLabel(type: QrContentType): string {
     case "vcard": return "vCard (contact card)";
     case "phone": return "Phone Number";
     case "wifi": return "Wi-Fi Network";
+    case "geo": return "Location (map)";
+    case "email": return "Email Address";
+    case "app": return "App Link";
     case "text": return "Plain Text";
     case "encoded": return "Encoded Data";
   }
+}
+
+/* ── Geo / email parsing ──────────────────────────────────── */
+
+function parseGeo(raw: string): GeoData | null {
+  // geo:lat,lng[,accuracy][?q=label]  or  geo:lat,lng?q=...
+  const m = raw.trim().match(/^geo:([^?]+)(\?(.*))?$/i);
+  if (!m) return null;
+  const parts = m[1].split(",");
+  const lat = Number(parts[0]);
+  const lng = Number(parts[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  let label: string | null = null;
+  try {
+    const params = new URLSearchParams(m[3] ?? "");
+    label = params.get("q") || params.get("query") || null;
+    if (label) label = decodeURIComponent(label.replace(/\+/g, " "));
+  } catch { /* ignore query parsing */ }
+  return { lat, lng, label };
+}
+
+function parseEmail(raw: string): EmailData | null {
+  const m = raw.trim().match(/^mailto:([^?]+)(\?(.*))?$/i);
+  if (!m) return null;
+  const address = decodeURIComponent(m[1]).trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) return null;
+  const params = new URLSearchParams(m[3] ?? "");
+  const subject = params.get("subject");
+  const body = params.get("body");
+  return { address, subject, body };
 }
 
 /* ── UPI parsing ─────────────────────────────────────────────── */
@@ -256,7 +318,78 @@ function isEncodedData(raw: string): boolean {
   return false;
 }
 
+/* ── Encoded-content decoding (base64 / hex) ──────────────
+ * "Encoded data" QR codes are a dead end for users unless we actually
+ * try to decode them. Scammers hide links in base64 to dodge scanners,
+ * so a successful decode is re-analyzed as its real type. Genuinely
+ * encrypted (binary) payloads stay unreadable — we explain that in
+ * plain words instead of shrugging. */
+
+function decodeBase64(raw: string): Uint8Array | null {
+  try {
+    let s = raw.replace(/\s+/g, "");
+    while (s.length % 4 !== 0) s += "=";
+    const bin = atob(s);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+function decodeHex(raw: string): Uint8Array | null {
+  const s = raw.replace(/\s+/g, "");
+  if (!/^[0-9a-fA-F]+$/.test(s) || s.length % 2 !== 0) return null;
+  const bytes = new Uint8Array(s.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(s.slice(i * 2, i * 2 + 2), 16);
+  return bytes;
+}
+
+/** Decode bytes to text only when the result is genuinely readable. */
+function bytesToReadableText(bytes: Uint8Array): string | null {
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  } catch {
+    return null;
+  }
+  if (!text) return null;
+  let junk = 0;
+  for (const ch of text) {
+    const c = ch.charCodeAt(0);
+    if ((c < 32 && c !== 9 && c !== 10 && c !== 13) || c === 127 || c === 0xfffd) junk++;
+  }
+  // More than ~15% control/replacement characters → it's binary, not text
+  if (junk / text.length > 0.15) return null;
+  const trimmed = text.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function tryDecodeEncoded(raw: string): { value: string } | { byteLength: number } | null {
+  const bytes = BASE64_REGEX.test(raw)
+    ? decodeBase64(raw)
+    : /^[0-9a-fA-F]{32,}$/.test(raw.replace(/\s+/g, ""))
+      ? decodeHex(raw)
+      : null;
+  if (!bytes) return null;
+  const text = bytesToReadableText(bytes);
+  if (text) return { value: text };
+  return { byteLength: bytes.length };
+}
+
 /* ── Human-readable description ────────────────────────────── */
+
+function decodedTypeLabelEN(type: QrContentType): string {
+  switch (type) {
+    case "url": return "a web link";
+    case "upi": return "a UPI payment request";
+    case "vcard": return "a contact card";
+    case "wifi": return "Wi-Fi network settings";
+    case "phone": return "a phone number";
+    default: return "readable text";
+  }
+}
 
 function generateDescription(result: QrScanResult): string {
   switch (result.contentType) {
@@ -293,13 +426,34 @@ function generateDescription(result: QrScanResult): string {
       desc += " Scanning it may allow a device to connect to the specified network.";
       return desc;
     }
-    case "encoded":
-      return "The QR code contains encoded data rather than directly readable information. Its purpose cannot be reliably determined from the decoded value alone.";
+    case "geo": {
+      if (result.geo) {
+        let desc = `This QR code shows a location on the map at coordinates ${result.geo.lat.toFixed(5)}, ${result.geo.lng.toFixed(5)}.`;
+        if (result.geo.label) {
+          desc += ` The QR itself claims the place is "${result.geo.label}" — that label is self-declared (anyone can write anything), so NetGuard verifies it from the real coordinates.`;
+        }
+        return desc;
+      }
+      return "This QR code claims to contain a map location, but the coordinates are invalid.";
+    }
+    case "email": {
+      let desc = `This QR code opens a new email addressed to "${result.email?.address}".`;
+      if (result.email?.subject) desc += ` The pre-filled subject is "${result.email.subject}".`;
+      desc += " Nothing is sent until you press Send.";
+      return desc;
+    }
+    case "app":
+      return "This QR code is a link that opens or installs a mobile app. Check the developer name on the store page before installing — scammers publish look-alike apps.";
+    case "encoded": {
+      const decoded = tryDecodeEncoded(result.rawContent);
+      const size = decoded && "byteLength" in decoded ? ` about ${decoded.byteLength} bytes of` : "";
+      return `This QR code holds a scrambled/locked code (${size ? size.trim() : "encrypted"} data) that cannot be read as text or a link by any tool. Banking, login and payment apps use codes like this as one-time tokens. If you were not expecting this QR code, do not use it — and never enter OTPs, passwords or payment details after scanning a code like this.`;
+    }
     case "text": {
-      const preview = result.rawContent.length > 100
-        ? result.rawContent.slice(0, 100) + "..."
-        : result.rawContent;
-      return `This QR code contains plain text: "${preview}". The content does not appear to be a URL, payment request, or contact card.`;
+      const source = result.decodedText ?? result.rawContent;
+      const preview = source.length > 100 ? source.slice(0, 100) + "..." : source;
+      const prefix = result.decodedText ? "Decoded from the hidden (encoded) data, this QR code contains plain text: " : "This QR code contains plain text: ";
+      return `${prefix}"${preview}"`;
     }
   }
 }
@@ -341,12 +495,25 @@ function generateSecurityAssessment(
           for (const flag of linkCheckResult.flags) {
             reasons.push(`${flag.category}: ${flag.explanation}`);
           }
+          if (result.hiddenLink) {
+            reasons.push("The link was deliberately hidden inside encoded (scrambled) data instead of being given openly — a common trick to avoid detection.");
+            return { assessment: "Suspicious", reasons };
+          }
+          return { assessment: "Suspicious", reasons };
+        }
+        if (result.hiddenLink) {
+          // A clean URL that was intentionally concealed is still a red flag
+          reasons.push("The Link Checker found no risk in the link itself, BUT the link was deliberately hidden inside encoded (scrambled) data — scammers do this to avoid detection.");
           return { assessment: "Suspicious", reasons };
         }
         reasons.push("The Link Checker found no significant risk indicators for this URL.");
         return { assessment: "Safe", reasons };
       }
       reasons.push("URL could not be fully analyzed.");
+      if (result.hiddenLink) {
+        reasons.push("The link was hidden inside encoded (scrambled) data — a common trick to avoid detection.");
+        return { assessment: "Suspicious", reasons };
+      }
       return { assessment: "Unable to Determine", reasons };
     }
     case "upi": {
@@ -375,14 +542,33 @@ function generateSecurityAssessment(
       if (result.wifi?.password) reasons.push("A password is included — ensure you trust the source before connecting.");
       return { assessment: "Low Risk", reasons };
     }
+    case "geo": {
+      if (result.geo) {
+        reasons.push("This QR only shows a location on a map. It does not open a website or make a payment.");
+        if (result.geo.label) reasons.push("The place name written in the QR is self-declared — it was verified separately from the actual coordinates (see identification above).");
+        return { assessment: "Low Risk", reasons };
+      }
+      reasons.push("The QR claims to be a location but the coordinates are invalid — the QR may be corrupted or deliberately malformed.");
+      return { assessment: "Unable to Determine", reasons };
+    }
+    case "email": {
+      reasons.push(`This opens a pre-filled email to ${result.email?.address ?? "an address"}. Nothing is sent until you press Send.`);
+      reasons.push("Be cautious about who asked you to scan this — pre-filled emails are sometimes used for phishing.");
+      return { assessment: "Unable to Determine", reasons };
+    }
+    case "app": {
+      reasons.push("This links to an app page. Installing apps from unknown sources can be risky — check the developer name and reviews before installing.");
+      return { assessment: "Unable to Determine", reasons };
+    }
     case "encoded": {
-      reasons.push("The content appears to be encoded or encrypted. Without decoding it further, the purpose and safety cannot be determined.");
+      reasons.push("This is a scrambled/locked code (encrypted data). No tool can read it as text or a link — it is usually a one-time token for a specific app.");
+      reasons.push("If you were not expecting this QR code, do not use it. Never enter OTPs, passwords or payment details after scanning a code like this.");
       return { assessment: "Unable to Determine", reasons };
     }
     case "text": {
       reasons.push("The QR code contains plain text. No URL, payment, or known malicious pattern was detected.");
       const scamPhrases = ["free money", "winner", "congratulations", "urgent", "otp", "password", "bank"];
-      const lower = result.rawContent.toLowerCase();
+      const lower = (result.decodedText ?? result.rawContent).toLowerCase();
       const matches = scamPhrases.filter(p => lower.includes(p));
       if (matches.length > 0) {
         reasons.push(`However, the text contains words often associated with scams: ${matches.join(", ")}.`);
@@ -416,16 +602,66 @@ export function analyzeQrContent(
     phone: null,
     url: null,
     wifi: null,
+    geo: null,
+    email: null,
     contentTypeLabel: contentTypeLabel(contentType),
     description: "",
     securityAssessment: "Unable to Determine",
     assessmentReasons: [],
+    hiddenLink: false,
+    decodedText: null,
   };
+
+  // "Encoded" is only a label — try to actually decode base64/hex content.
+  // If it turns out to hide a real link / payment request / text, analyze
+  // the decoded value as its true type so the user gets a useful answer.
+  if (contentType === "encoded") {
+    const decoded = tryDecodeEncoded(trimmed);
+    if (decoded && "value" in decoded) {
+      const innerType = detectContentType(decoded.value);
+      if (innerType !== "encoded") {
+        const inner = analyzeQrContent(decoded.value, linkCheckResult ?? null);
+        inner.rawContent = trimmed; // history/display still shows the original code
+        inner.hiddenLink = innerType === "url" || innerType === "upi" || innerType === "vcard" || innerType === "wifi" || innerType === "phone";
+        if (innerType === "text") inner.decodedText = decoded.value;
+        const concealNote = inner.hiddenLink
+          ? "⚠ The real content was deliberately hidden inside encoded (scrambled) data — a trick sometimes used to dodge scanners. "
+          : "";
+        inner.description = `${concealNote}Decoded content (${decodedTypeLabelEN(innerType)}): ${inner.description}`;
+        return inner;
+      }
+    }
+    // Unreadable / binary payload — stays "encoded" with a plain-words explanation
+  }
 
   switch (contentType) {
     case "url":
       result.url = trimmed;
       break;
+    case "app":
+      // https store links can be inspected further; custom schemes cannot
+      if (URL_REGEX.test(trimmed)) result.url = trimmed;
+      break;
+    case "geo": {
+      const geo = parseGeo(trimmed);
+      if (geo) {
+        result.geo = geo;
+      } else {
+        result.contentType = "text";
+        result.contentTypeLabel = contentTypeLabel("text");
+      }
+      break;
+    }
+    case "email": {
+      const email = parseEmail(trimmed);
+      if (email) {
+        result.email = email;
+      } else {
+        result.contentType = "text";
+        result.contentTypeLabel = contentTypeLabel("text");
+      }
+      break;
+    }
     case "upi": {
       const { fields, cautions } = parseUpi(trimmed);
       result.upi = fields;

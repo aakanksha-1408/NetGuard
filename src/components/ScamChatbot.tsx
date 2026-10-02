@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
+import BackToHome from "@/components/BackToHome";
 import {
   investigateMessage,
   SAMPLE_INVESTIGATIONS,
@@ -44,6 +45,8 @@ interface NewsCheckResult {
   verdict: string;
   confidence: string;
   reasoning: string;
+  evidence?: string[];
+  couldNotVerify?: string[];
   redFlags: string[];
   suggestion: string;
 }
@@ -62,6 +65,49 @@ interface NewsHistoryItem {
 type HistoryEntry =
   | { type: "scam"; data: HistoryItem }
   | { type: "news"; data: NewsHistoryItem };
+
+/* ------------------------------------------------------------------ */
+/* News verification status helpers                                     */
+/* ------------------------------------------------------------------ */
+
+function newsVerdictLabel(verdict: string, t: ReturnType<typeof useLang>["t"]): string {
+  switch (verdict) {
+    case "verified":
+    case "likely real":
+      return t.scamChatbot.newsVerdictVerified;
+    case "partially verified":
+      return t.scamChatbot.newsVerdictPartiallyVerified;
+    case "likely fake":
+    case "contradicted by reliable evidence":
+      return t.scamChatbot.newsVerdictContradicted;
+    case "misleading / needs context":
+      return t.scamChatbot.newsVerdictMisleading;
+    case "unverified":
+      return t.scamChatbot.newsVerdictUnverified;
+    default:
+      return t.scamChatbot.newsVerdictUnverifiable;
+  }
+}
+
+function newsVerdictCircleClasses(verdict: string): string {
+  if (verdict === "likely fake" || verdict === "contradicted by reliable evidence")
+    return "border-red-500 bg-red-100 dark:bg-red-950/30";
+  if (verdict === "verified" || verdict === "likely real")
+    return "border-green-500 bg-green-100 dark:bg-green-950/30";
+  if (verdict === "partially verified" || verdict === "misleading / needs context")
+    return "border-yellow-500 bg-yellow-100 dark:bg-yellow-950/30";
+  return "border-zinc-500 bg-zinc-100 dark:bg-zinc-800/30";
+}
+
+function newsVerdictTextClasses(verdict: string): string {
+  if (verdict === "likely fake" || verdict === "contradicted by reliable evidence")
+    return "text-red-700 dark:text-red-400";
+  if (verdict === "verified" || verdict === "likely real")
+    return "text-green-700 dark:text-green-400";
+  if (verdict === "partially verified" || verdict === "misleading / needs context")
+    return "text-yellow-700 dark:text-yellow-400";
+  return "text-zinc-600 dark:text-zinc-400";
+}
 
 /* ------------------------------------------------------------------ */
 /* Risk score gauge (SVG circle)                                       */
@@ -85,10 +131,10 @@ function RiskGauge({ score, band }: { score: number; band: RiskBand }) {
 
   const labelColor =
     score >= 61
-      ? "text-red-400"
+      ? "text-red-700 dark:text-red-400"
       : score >= 41
-        ? "text-yellow-400"
-        : "text-green-400";
+        ? "text-yellow-700 dark:text-yellow-400"
+        : "text-green-700 dark:text-green-400";
 
   return (
     <div className="flex flex-col items-center">
@@ -109,7 +155,7 @@ function RiskGauge({ score, band }: { score: number; band: RiskBand }) {
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-3xl font-bold text-zinc-50">{score}</span>
+          <span className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">{score}</span>
           <span className="text-xs text-zinc-500">/ 100</span>
         </div>
       </div>
@@ -156,7 +202,7 @@ function RedFlagCard({
         <SeverityDot severity={flag.severity} />
         <div className="flex-1">
           <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{flag.label}</p>
-          <p className="mt-1 text-xs text-zinc-400">{flag.explanation}</p>
+          <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{flag.explanation}</p>
           {flag.evidence && (
             <p className="mt-1.5 rounded bg-zinc-100 px-2 py-1 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-500">
               Evidence: &quot;{flag.evidence}&quot;
@@ -167,8 +213,8 @@ function RedFlagCard({
       </button>
       {expanded && (
         <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-        <p className="text-xs font-medium text-teal-400">Why is this dangerous?</p>
-          <p className="mt-1 text-xs leading-relaxed text-zinc-400">{flag.education}</p>
+        <p className="text-xs font-medium text-teal-700 dark:text-teal-400">Why is this dangerous?</p>
+          <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">{flag.education}</p>
         </div>
       )}
     </div>
@@ -206,7 +252,7 @@ function ScanningView({ steps }: { steps: string[] }) {
         </div>
       </div>
       <div className="text-center">
-        <p className="text-sm font-semibold text-zinc-200">{steps[step]}</p>
+        <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{steps[step]}</p>
         <div className="mx-auto mt-3 h-1 w-48 overflow-hidden rounded-full bg-zinc-800">
           <div
             className="h-full bg-teal-500 transition-all duration-300"
@@ -279,7 +325,7 @@ export default function ScamChatbot() {
 
   const startInvestigation = useCallback(
     async (text: string) => {
-      const fullText = url ? `${text}\n${url}` : text;
+      const fullText = text;
       if (!fullText.trim()) return;
 
       setInput(fullText);
@@ -357,7 +403,7 @@ export default function ScamChatbot() {
         setAiLoading(false);
       }
     },
-    [url, user, lang],
+    [user, lang],
   );
 
   const handleImageSelect = useCallback((file: File) => {
@@ -387,7 +433,7 @@ export default function ScamChatbot() {
 
   const startNewsCheck = useCallback(
     async (text: string) => {
-      if (!text.trim() && !imageData) return;
+      if (!text.trim() && !imageData && !url.trim()) return;
 
       setInput(text);
       setView("scanning");
@@ -406,6 +452,7 @@ export default function ScamChatbot() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             text,
+            url: url.trim() || undefined,
             lang,
             imageData: imageData ?? undefined,
             imageMimeType: imageMime ?? undefined,
@@ -451,7 +498,7 @@ export default function ScamChatbot() {
         setView("newsResult");
       }
     },
-    [user, lang, imageData, imageMime, t],
+    [user, lang, imageData, imageMime, url, t],
   );
 
   async function loadHistory() {
@@ -511,6 +558,7 @@ export default function ScamChatbot() {
 
   return (
     <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-4xl flex-col px-4 py-8 sm:px-6">
+      <BackToHome className="mb-3" />
       {/* Header */}
       <header className="mb-6 flex items-start justify-between gap-4">
         <div>
@@ -523,14 +571,6 @@ export default function ScamChatbot() {
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
-          {view !== "input" && view !== "scanning" && (
-            <button
-              onClick={() => { setView("input"); setResult(null); setNewsResult(null); setNewsError(null); setInput(""); setUrl(""); removeImage(); }}
-              className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium text-zinc-700 transition hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-300"
-            >
-              {t.scamChatbot.newInvestigation}
-            </button>
-          )}
           {user && (
             <button
               onClick={loadHistory}
@@ -552,7 +592,7 @@ export default function ScamChatbot() {
               className={`flex-1 rounded-full px-4 py-2 text-xs font-semibold transition ${
                 mode === "scam"
                   ? "bg-teal-500 text-black"
-                  : "text-zinc-400 hover:text-zinc-200"
+                  : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
               }`}
             >
               {t.scamChatbot.modeScam}
@@ -562,7 +602,7 @@ export default function ScamChatbot() {
               className={`flex-1 rounded-full px-4 py-2 text-xs font-semibold transition ${
                 mode === "news"
                   ? "bg-teal-500 text-black"
-                  : "text-zinc-400 hover:text-zinc-200"
+                  : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
               }`}
             >
               {t.scamChatbot.modeNews}
@@ -592,19 +632,22 @@ export default function ScamChatbot() {
               className="mt-3 w-full resize-none rounded-xl border border-zinc-300 bg-white p-4 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
             />
 
-            {/* URL input */}
-            <div className="mt-3">
-              <label className="text-xs font-medium text-zinc-400">
-                {mode === "scam" ? t.scamChatbot.urlLabel : t.scamChatbot.newsUrlLabel}
-              </label>
-              <input
-                type="text"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://..."
-                className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-teal-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
-              />
-            </div>
+            {/* Source URL input — shown on the News/Post tab only. The Scam
+                Message tab intentionally has no URL field. */}
+            {mode === "news" && (
+              <div className="mt-3">
+                <label className="text-xs font-medium text-zinc-400">
+                  {t.scamChatbot.newsUrlLabel}
+                </label>
+                <input
+                  type="text"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://..."
+                  className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-teal-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
+                />
+              </div>
+            )}
 
             <button
               onClick={() => {
@@ -733,14 +776,14 @@ export default function ScamChatbot() {
                 <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
                   Confidence
                 </p>
-                <p className="mt-1 text-sm text-zinc-300">
+                <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
                   <span
                     className={`font-semibold ${
                       result.confidence === "High"
-                        ? "text-green-400"
+                        ? "text-green-700 dark:text-green-400"
                         : result.confidence === "Medium"
-                          ? "text-yellow-400"
-                          : "text-zinc-400"
+                          ? "text-yellow-700 dark:text-yellow-400"
+                          : "text-zinc-600 dark:text-zinc-400"
                     }`}
                   >
                     {result.confidence}
@@ -842,8 +885,8 @@ export default function ScamChatbot() {
                   onClick={() => setSelectedExposure(selectedExposure === key ? null : key)}
                   className={`rounded-full border px-4 py-2 text-xs font-medium transition ${
                     selectedExposure === key
-                      ? "border-teal-500 bg-teal-950/50 text-teal-300"
-                      : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+                      ? "border-teal-500 bg-teal-100 text-teal-800 dark:bg-teal-950/50 dark:text-teal-300"
+                      : "border-zinc-300 text-zinc-600 hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
                   }`}
                 >
                   {key}
@@ -851,13 +894,13 @@ export default function ScamChatbot() {
               ))}
             </div>
             {selectedExposure && (
-              <div className="mt-4 rounded-xl border border-red-900/50 bg-red-950/20 p-4">
-                <p className="text-sm font-bold text-red-400">
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/20">
+                <p className="text-sm font-bold text-red-600 dark:text-red-400">
                   {selectedExposure.includes("haven") ? "Good Decision" : "URGENT ACTION PLAN"}
                 </p>
                 <ul className="mt-2 space-y-1">
                   {result.exposureActions[selectedExposure].map((action, i) => (
-                    <li key={i} className="flex gap-2 text-sm text-zinc-300">
+                    <li key={i} className="flex gap-2 text-sm text-zinc-700 dark:text-zinc-300">
                       <span className="text-teal-500">→</span> {action}
                     </li>
                   ))}
@@ -871,12 +914,12 @@ export default function ScamChatbot() {
             <div className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
               <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">Safe Response Generator</h2>
               <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/50">
-                <p className="text-sm text-zinc-300 italic">&ldquo;{result.safeReply}&rdquo;</p>
+                <p className="text-sm text-zinc-700 dark:text-zinc-300 italic">&ldquo;{result.safeReply}&rdquo;</p>
               </div>
               <div className="mt-3 flex gap-2">
                 <button
                   onClick={() => navigator.clipboard.writeText(result.safeReply!)}
-                  className="rounded-full border border-zinc-700 px-4 py-2 text-xs font-medium text-zinc-300 hover:border-zinc-500"
+                  className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium text-zinc-700 hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-300"
                 >
                   Copy Safe Reply
                 </button>
@@ -907,20 +950,20 @@ export default function ScamChatbot() {
                 )}
               </h2>
               {aiInsight.additionalInsights && (
-                <p className="mt-3 text-sm leading-relaxed text-zinc-300">
+                <p className="mt-3 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
                   {aiInsight.additionalInsights}
                 </p>
               )}
               {aiInsight.detailedExplanation && (
                 <div className="mt-4 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900/50">
                   <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Detailed Explanation</p>
-                  <p className="mt-2 text-sm leading-relaxed text-zinc-300">{aiInsight.detailedExplanation}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{aiInsight.detailedExplanation}</p>
                 </div>
               )}
               {aiInsight.scammerIntent && (
                 <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/20">
                   <p className="text-xs font-medium uppercase tracking-wide text-red-600 dark:text-red-400">Scammer&apos;s Likely Intent</p>
-                  <p className="mt-2 text-sm text-zinc-300">{aiInsight.scammerIntent}</p>
+                  <p className="mt-2 text-sm text-zinc-700 dark:text-zinc-300">{aiInsight.scammerIntent}</p>
                 </div>
               )}
               {aiInsight.socialEngineeringTechniques.length > 0 && (
@@ -940,7 +983,7 @@ export default function ScamChatbot() {
                   <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Subtle Red Flags</p>
                   <ul className="mt-2 space-y-1">
                     {aiInsight.subtleRedFlags.map((f, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-zinc-300">
+                      <li key={i} className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
                         <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-yellow-500" />
                         {f}
                       </li>
@@ -950,10 +993,10 @@ export default function ScamChatbot() {
               )}
               {aiInsight.recommendedActions.length > 0 && (
                 <div className="mt-4">
-                  <p className="text-xs font-medium uppercase tracking-wide text-teal-400">AI Recommended Actions</p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-teal-700 dark:text-teal-400">AI Recommended Actions</p>
                   <ol className="mt-2 space-y-1">
                     {aiInsight.recommendedActions.map((a, i) => (
-                      <li key={i} className="flex gap-2 text-sm text-zinc-300">
+                      <li key={i} className="flex gap-2 text-sm text-zinc-700 dark:text-zinc-300">
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-950 text-[10px] font-bold text-teal-400">{i + 1}</span>
                         {a}
                       </li>
@@ -985,7 +1028,7 @@ export default function ScamChatbot() {
             </button>
             <Link
               href="/qr-scanner"
-              className="rounded-full border border-teal-700 px-6 py-2.5 text-sm font-semibold text-teal-400 transition hover:bg-teal-950"
+              className="rounded-full border border-teal-300 px-6 py-2.5 text-sm font-semibold text-teal-700 transition hover:border-teal-500 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-950"
             >
               Scan a QR Code →
             </Link>
@@ -997,8 +1040,8 @@ export default function ScamChatbot() {
       {view === "newsResult" && !newsResult && newsError && (
         <div className="flex-1 space-y-6">
           <div className="flex flex-col items-center gap-5 rounded-2xl border border-zinc-200 bg-white p-10 text-center dark:border-zinc-800 dark:bg-zinc-950">
-            <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-yellow-500 bg-yellow-950/30">
-              <span className="text-3xl font-bold text-yellow-400">!</span>
+            <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-yellow-500 bg-yellow-100 dark:bg-yellow-950/30">
+              <span className="text-3xl font-bold text-yellow-600 dark:text-yellow-400">!</span>
             </div>
             <div>
               <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
@@ -1037,32 +1080,10 @@ export default function ScamChatbot() {
           <div className="grid gap-6 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950 sm:grid-cols-3 sm:items-center">
             <div className="flex flex-col items-center">
               <div
-                className={`flex h-36 w-36 items-center justify-center rounded-full border-4 ${
-                  newsResult.verdict === "likely fake"
-                    ? "border-red-500 bg-red-950/30"
-                    : newsResult.verdict === "likely real"
-                      ? "border-green-500 bg-green-950/30"
-                      : newsResult.verdict === "misleading / needs context"
-                        ? "border-yellow-500 bg-yellow-950/30"
-                        : "border-zinc-500 bg-zinc-800/30"
-                }`}
+                className={`flex h-36 w-36 items-center justify-center rounded-full border-4 ${newsVerdictCircleClasses(newsResult.verdict)}`}
               >
-                <span className={`text-center text-sm font-bold leading-tight ${
-                  newsResult.verdict === "likely fake"
-                    ? "text-red-400"
-                    : newsResult.verdict === "likely real"
-                      ? "text-green-400"
-                      : newsResult.verdict === "misleading / needs context"
-                        ? "text-yellow-400"
-                        : "text-zinc-400"
-                }`}>
-                  {newsResult.verdict === "likely fake"
-                    ? t.scamChatbot.newsVerdictLikelyFake
-                    : newsResult.verdict === "likely real"
-                      ? t.scamChatbot.newsVerdictLikelyReal
-                      : newsResult.verdict === "misleading / needs context"
-                        ? t.scamChatbot.newsVerdictMisleading
-                        : t.scamChatbot.newsVerdictUnverifiable}
+                <span className={`text-center text-sm font-bold leading-tight ${newsVerdictTextClasses(newsResult.verdict)}`}>
+                  {newsVerdictLabel(newsResult.verdict, t)}
                 </span>
               </div>
             </div>
@@ -1071,13 +1092,13 @@ export default function ScamChatbot() {
                 <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
                   {t.scamChatbot.confidence}
                 </p>
-                <p className="mt-1 text-sm text-zinc-300">
+                <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
                   <span className={`font-semibold ${
                     newsResult.confidence === "high"
-                      ? "text-green-400"
+                      ? "text-green-700 dark:text-green-400"
                       : newsResult.confidence === "medium"
-                        ? "text-yellow-400"
-                        : "text-zinc-400"
+                        ? "text-yellow-700 dark:text-yellow-400"
+                        : "text-zinc-600 dark:text-zinc-400"
                   }`}>
                     {newsResult.confidence === "high"
                       ? t.scamChatbot.newsConfidenceHigh
@@ -1101,9 +1122,43 @@ export default function ScamChatbot() {
               <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
                 {t.scamChatbot.newsReasoning}
               </h2>
-              <p className="mt-3 text-sm leading-relaxed text-zinc-300">
+              <p className="mt-3 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
                 {newsResult.reasoning}
               </p>
+            </div>
+          )}
+
+          {/* Evidence gathered from reliable sources (never invented) */}
+          {(newsResult.evidence?.length ?? 0) > 0 && (
+            <div className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
+              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+                🔎 {t.scamChatbot.newsEvidenceHeading} ({newsResult.evidence!.length})
+              </h2>
+              <ul className="mt-3 space-y-2">
+                {newsResult.evidence!.map((ev, i) => (
+                  <li key={i} className="flex items-start gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/50">
+                    <span className="mt-0.5 text-teal-500">✓</span>
+                    <p className="text-sm text-zinc-700 dark:text-zinc-300">{ev}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* What could NOT be verified — honesty over guessing */}
+          {(newsResult.couldNotVerify?.length ?? 0) > 0 && (
+            <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-6 dark:border-yellow-800 dark:bg-yellow-950/20">
+              <h2 className="text-base font-semibold text-yellow-700 dark:text-yellow-400">
+                ⚠️ {t.scamChatbot.newsCouldNotVerify} ({newsResult.couldNotVerify!.length})
+              </h2>
+              <ul className="mt-3 space-y-2">
+                {newsResult.couldNotVerify!.map((c, i) => (
+                  <li key={i} className="flex items-start gap-3">
+                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-yellow-500" />
+                    <p className="text-sm text-yellow-800 dark:text-yellow-300">{c}</p>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
@@ -1117,7 +1172,7 @@ export default function ScamChatbot() {
                 {newsResult.redFlags.map((flag, i) => (
                   <li key={i} className="flex items-start gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/50">
                     <span className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full bg-yellow-500" />
-                    <p className="text-sm text-zinc-300">{flag}</p>
+                    <p className="text-sm text-zinc-700 dark:text-zinc-300">{flag}</p>
                   </li>
                 ))}
               </ul>
@@ -1132,7 +1187,7 @@ export default function ScamChatbot() {
               <h2 className="text-base font-semibold text-teal-700 dark:text-teal-300">
                 {t.scamChatbot.newsSuggestionHeading}
               </h2>
-              <p className="mt-3 text-sm leading-relaxed text-zinc-300">
+              <p className="mt-3 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
                 {newsResult.suggestion}
               </p>
             </div>
@@ -1146,12 +1201,6 @@ export default function ScamChatbot() {
             >
               {t.scamChatbot.investigateAnother}
             </button>
-            <Link
-              href="/"
-              className="rounded-full border border-teal-700 px-6 py-2.5 text-sm font-semibold text-teal-400 transition hover:bg-teal-950"
-            >
-              {t.common.backToHome}
-            </Link>
           </div>
         </div>
       )}
@@ -1184,10 +1233,10 @@ export default function ScamChatbot() {
                       <span
                         className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-bold ${
                           h.risk_score >= 61
-                            ? "bg-red-950/50 text-red-400"
+                            ? "bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-400"
                             : h.risk_score >= 41
-                              ? "bg-yellow-950/50 text-yellow-400"
-                              : "bg-green-950/50 text-green-400"
+                              ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-400"
+                              : "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-400"
                         }`}
                       >
                         {h.risk_score}/100
@@ -1197,7 +1246,7 @@ export default function ScamChatbot() {
                           <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
                             {t.scamChatbot.scamCheckTag}
                           </span>
-                          <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-teal-400">
+                          <p className="truncate text-sm font-medium text-zinc-900 group-hover:text-teal-400 dark:text-zinc-200">
                             {h.scam_type} — {h.risk_band}
                           </p>
                         </div>
@@ -1210,11 +1259,17 @@ export default function ScamChatbot() {
                 } else {
                   const h = entry.data;
                   const verdictColor =
-                    h.verdict === "likely fake"
-                      ? "bg-red-950/50 text-red-400"
-                      : h.verdict === "likely real"
-                        ? "bg-green-950/50 text-green-400"
-                        : "bg-yellow-950/50 text-yellow-400";
+                    h.verdict === "likely fake" || h.verdict === "contradicted by reliable evidence"
+                      ? "bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-400"
+                      : h.verdict === "likely real" || h.verdict === "verified"
+                        ? "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-400"
+                        : "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-400";
+                  const verdictShort =
+                    h.verdict === "likely fake" || h.verdict === "contradicted by reliable evidence"
+                      ? "FAKE"
+                      : h.verdict === "likely real" || h.verdict === "verified"
+                        ? "REAL"
+                        : "??";
                   return (
                     <button
                       key={h.id}
@@ -1232,15 +1287,15 @@ export default function ScamChatbot() {
                       className="group flex w-full items-center gap-4 rounded-xl border border-zinc-200 bg-white p-4 text-left transition hover:border-teal-700 dark:border-zinc-800 dark:bg-zinc-950"
                     >
                       <span className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-bold ${verdictColor}`}>
-                        {h.verdict === "likely fake" ? "FAKE" : h.verdict === "likely real" ? "REAL" : "??"}
+                        {verdictShort}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="rounded bg-teal-900/50 px-1.5 py-0.5 text-[10px] font-medium text-teal-400">
+                          <span className="rounded bg-teal-100 px-1.5 py-0.5 text-[10px] font-medium text-teal-800 dark:bg-teal-900/50 dark:text-teal-400">
                             {t.scamChatbot.newsCheckTag}
                           </span>
-                          <p className="truncate text-sm font-medium text-zinc-200 group-hover:text-teal-400">
-                            {h.verdict}
+                          <p className="truncate text-sm font-medium text-zinc-900 group-hover:text-teal-400 dark:text-zinc-200">
+                            {newsVerdictLabel(h.verdict, t)}
                           </p>
                         </div>
                         <p className="truncate text-xs text-zinc-500">
@@ -1255,14 +1310,6 @@ export default function ScamChatbot() {
           )}
         </div>
       )}
-
-      {/* Footer */}
-      <Link
-        href="/"
-        className="mt-8 inline-flex text-sm font-medium text-teal-400 hover:text-teal-300"
-      >
-        {t.common.backToHome}
-      </Link>
     </div>
   );
 }

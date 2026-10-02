@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import BackToHome from "@/components/BackToHome";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/lib/i18n/context";
 
@@ -130,6 +130,7 @@ export default function QuizPage() {
     const risk = getRiskLabel(score);
     return (
       <div className="mx-auto max-w-2xl px-6 py-24">
+        <BackToHome className="mb-6" />
         <div className="text-center">
           <p className="text-sm font-medium text-teal-500">{t.quiz.title}</p>
           <div className="mt-3 text-6xl">{risk.emoji}</div>
@@ -176,12 +177,6 @@ export default function QuizPage() {
           >
             {t.quiz.retake}
           </button>
-          <Link
-            href="/"
-            className="rounded-full bg-teal-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-teal-500"
-          >
-            {t.quiz.backHome}
-          </Link>
         </div>
       </div>
     );
@@ -189,6 +184,7 @@ export default function QuizPage() {
 
   return (
     <div className="mx-auto max-w-xl px-6 py-16">
+      <BackToHome className="mb-4" />
       <div className="mb-8">
         <div className="mb-2 flex justify-between text-sm text-zinc-500">
           <span>
