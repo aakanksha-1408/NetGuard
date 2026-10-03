@@ -338,12 +338,12 @@ export default function QRCodeScanner() {
           };
           setAiExplanation(clean);
         } else if (aiData.apiKeyMissing) {
-          setAiError("AI explanation not configured. Add GOOGLE_GEMINI_API_KEY to enable.");
+          setAiError(q.aiNotConfigured);
         } else if (aiData.error) {
-          setAiError("AI explanation temporarily unavailable.");
+          setAiError(q.aiUnavailable);
         }
         } catch {
-          setAiError("AI explanation temporarily unavailable.");
+          setAiError(q.aiUnavailable);
         } finally {
           setAiLoading(false);
         }
@@ -368,10 +368,11 @@ export default function QRCodeScanner() {
 
   async function handleCopy() {
     if (!qrResult) return;
-    let text = `QR Code Analysis\nType: ${qrResult.contentTypeLabel}\nDescription: ${qrResult.description}\nSecurity: ${effectiveAssessment}`;
-    if (qrResult.assessmentReasons.length > 0) text += `\nReasons:\n${qrResult.assessmentReasons.map(r => `- ${r}`).join("\n")}`;
-    text += `\n\nDecoded Content: ${qrResult.rawContent}`;
-    if (linkCheckResult) text += `\n\nLink Checker Verdict: ${linkCheckResult.verdict}`;
+    const reasons = qrReasons(qrResult, t, linkCheckResult?.flags);
+    let text = `${q.copyHeader}\n${q.copyType} ${qrTypeLabel(qrResult.contentType, t)}\n${q.copyDescription} ${qrDescription(qrResult, t)}\n${q.copySecurity} ${qrAssessmentLabel(effectiveAssessment, t)}`;
+    if (reasons.length > 0) text += `\n${q.copyReasons}\n${reasons.map(r => `- ${r}`).join("\n")}`;
+    text += `\n\n${q.copyDecoded} ${qrResult.rawContent}`;
+    if (linkCheckResult) text += `\n\n${q.copyVerdict} ${translateVerdict(linkCheckResult.verdict, t)}`;
     await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -408,15 +409,15 @@ export default function QRCodeScanner() {
   if (view === "input") return (
     <div className="mx-auto w-full max-w-2xl px-6 py-16">
       <BackToHome className="mb-6" />
-      <p className="text-sm font-medium text-teal-500">QR Code Scam Scanner</p>
-      <h1 className="mt-2 text-3xl font-bold text-zinc-900 dark:text-zinc-50">Scan a QR Code</h1>
+      <p className="text-sm font-medium text-teal-500">{q.badge}</p>
+      <h1 className="mt-2 text-3xl font-bold text-zinc-900 dark:text-zinc-50">{q.title}</h1>
       <p className="mt-3 text-zinc-600 dark:text-zinc-400">
-        Upload a photo of a QR code. NetGuard will decode what is inside it and check if the destination is safe.
+        {q.description}
       </p>
 
       <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/20">
         <p className="text-sm text-red-700 dark:text-red-300">
-          <strong>⚠️ Tip:</strong> Scammers place QR codes on posters, flyers, and messages to redirect you to malicious websites or fraudulent payment pages. Always scan before you trust.
+          <strong>⚠️ {q.tipLabel}</strong> {q.tip}
         </p>
       </div>
 
@@ -433,8 +434,8 @@ export default function QRCodeScanner() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
           <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75zM6.75 16.5h.75v.75h-.75v-.75zM16.5 6.75h.75v.75h-.75v-.75zM13.5 13.5h.75v.75h-.75v-.75zM13.5 19.5h.75v.75h-.75v-.75zM19.5 13.5h.75v.75h-.75v-.75zM19.5 19.5h.75v.75h-.75v-.75zM16.5 16.5h.75v.75h-.75v-.75z" />
         </svg>
-        <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-300">Drop a QR code image here or click to upload</p>
-        <p className="mt-1 text-xs text-zinc-500">JPEG or PNG, max 10 MB</p>
+        <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-300">{q.dropZone}</p>
+        <p className="mt-1 text-xs text-zinc-500">{q.fileLimit}</p>
         <input
           ref={fileInputRef}
           type="file"
@@ -447,7 +448,7 @@ export default function QRCodeScanner() {
           onClick={() => fileInputRef.current?.click()}
           className="mt-6 rounded-full bg-teal-500 px-8 py-3 text-sm font-semibold text-black transition hover:bg-teal-400"
         >
-          Upload QR Code
+          {q.uploadBtn}
         </button>
       </div>
 
@@ -459,12 +460,12 @@ export default function QRCodeScanner() {
 
       {/* Supported content types */}
       <div className="mt-8 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-200">What can be scanned</h2>
+        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-200">{q.supportedTitle}</h2>
         <ul className="mt-3 space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
-          <li className="flex gap-2"><span className="text-teal-600 dark:text-teal-400">&#10003;</span> URLs — checked against Link Checker for scam indicators</li>
-          <li className="flex gap-2"><span className="text-teal-600 dark:text-teal-400">&#10003;</span> UPI payment requests — VPA and payee details parsed and flagged</li>
-          <li className="flex gap-2"><span className="text-teal-600 dark:text-teal-400">&#10003;</span> vCard contacts — decoded and displayed</li>
-          <li className="flex gap-2"><span className="text-teal-600 dark:text-teal-400">&#10003;</span> Phone numbers and plain text — displayed as-is</li>
+          <li className="flex gap-2"><span className="text-teal-600 dark:text-teal-400">&#10003;</span> {q.supportedUrls}</li>
+          <li className="flex gap-2"><span className="text-teal-600 dark:text-teal-400">&#10003;</span> {q.supportedUpi}</li>
+          <li className="flex gap-2"><span className="text-teal-600 dark:text-teal-400">&#10003;</span> {q.supportedVcard}</li>
+          <li className="flex gap-2"><span className="text-teal-600 dark:text-teal-400">&#10003;</span> {q.supportedOther}</li>
         </ul>
       </div>
 
@@ -472,8 +473,8 @@ export default function QRCodeScanner() {
       {user && history.length > 0 && (
         <section className="mt-10">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Your scan history</h2>
-            <button type="button" onClick={() => setView("history")} className="text-sm text-teal-700 hover:text-teal-600 dark:text-teal-400 dark:hover:text-teal-300">View all →</button>
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{q.scanHistory}</h2>
+            <button type="button" onClick={() => setView("history")} className="text-sm text-teal-700 hover:text-teal-600 dark:text-teal-400 dark:hover:text-teal-300">{q.viewAll}</button>
           </div>
           <ul className="mt-4 space-y-3">
             {history.slice(0, 3).map(h => (
@@ -495,7 +496,7 @@ export default function QRCodeScanner() {
   if (view === "decoding") return (
     <div className="mx-auto flex w-full max-w-2xl flex-col items-center justify-center px-6 py-32">
       <div className="h-10 w-10 animate-spin rounded-full border-2 border-zinc-700 border-t-teal-400" />
-      <p className="mt-4 text-sm text-zinc-400">Decoding QR code...</p>
+      <p className="mt-4 text-sm text-zinc-400">{q.decoding}</p>
     </div>
   );
 
@@ -503,10 +504,10 @@ export default function QRCodeScanner() {
   if (view === "history") return (
     <div className="mx-auto w-full max-w-3xl px-6 py-16">
       <BackToHome className="mb-6" />
-      <p className="text-sm font-medium text-teal-500">QR Code Scam Scanner</p>
-      <h1 className="mt-2 text-2xl font-bold text-zinc-900 dark:text-zinc-50">My Scan History</h1>
+      <p className="text-sm font-medium text-teal-500">{q.badge}</p>
+      <h1 className="mt-2 text-2xl font-bold text-zinc-900 dark:text-zinc-50">{q.myHistory}</h1>
       {history.length === 0 ? (
-        <p className="mt-6 text-zinc-400">No scans yet — upload a QR code to get started.</p>
+        <p className="mt-6 text-zinc-400">{q.noHistory}</p>
       ) : (
         <ul className="mt-6 space-y-3">
           {history.map(h => (
@@ -516,7 +517,7 @@ export default function QRCodeScanner() {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-200">{h.raw_content}</p>
-                <p className="text-xs text-zinc-500">{h.content_type === "url" ? "Web link" : h.content_type === "upi" ? "UPI payment" : h.content_type === "vcard" ? "Contact card" : h.content_type === "phone" ? "Phone" : "Text"}</p>
+                <p className="text-xs text-zinc-500">{qrHistoryTypeLabel(h.content_type, t)}</p>
               </div>
               <time className="shrink-0 text-xs text-zinc-500">{new Date(h.created_at).toLocaleDateString()}</time>
             </li>
@@ -524,7 +525,7 @@ export default function QRCodeScanner() {
         </ul>
       )}
       <button type="button" onClick={handleReset} className="mt-8 rounded-full border border-zinc-300 px-6 py-2 text-sm font-medium text-zinc-700 hover:border-teal-600 hover:text-teal-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:text-teal-400">
-        ← New Scan
+        {q.newScan}
       </button>
     </div>
   );
@@ -536,12 +537,12 @@ export default function QRCodeScanner() {
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-16">
       <BackToHome className="mb-6" />
-      <p className="text-sm font-medium text-teal-500">QR Code Scam Scanner</p>
+      <p className="text-sm font-medium text-teal-500">{q.badge}</p>
 
       {/* Description card */}
       <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
         <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{q.whatContains}</p>
-        <p className="mt-2 text-base leading-relaxed text-zinc-900 dark:text-zinc-100">{r.description}</p>
+        <p className="mt-2 text-base leading-relaxed text-zinc-900 dark:text-zinc-100">{qrDescription(r, t)}</p>
 
         {/* Real page metadata — fetched for free, no AI needed */}
         {r.contentType === "url" && metaLoading && (
@@ -598,18 +599,18 @@ export default function QRCodeScanner() {
       {/* Detected Type + Security Assessment */}
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <div className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Detected Type</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{q.detectedType}</p>
           <span className={`mt-2 inline-block rounded-full border px-3 py-1 text-sm font-semibold ${contentTypeBadge(r.contentType)}`}>
-            {r.contentTypeLabel}
+            {qrTypeLabel(r.contentType, t)}
           </span>
         </div>
         <div className={`rounded-2xl border p-5 ${assessmentBadge(effectiveAssessment)}`}>
-          <p className="text-xs font-medium uppercase tracking-wide opacity-70">Security Assessment</p>
+          <p className="text-xs font-medium uppercase tracking-wide opacity-70">{q.securityAssessment}</p>
           <p className="mt-1 text-xl font-bold">
-            {assessmentIcon(effectiveAssessment)} {effectiveAssessment}
+            {assessmentIcon(effectiveAssessment)} {qrAssessmentLabel(effectiveAssessment, t)}
           </p>
           {sbThreats.length > 0 && r.securityAssessment !== effectiveAssessment && (
-            <p className="mt-1 text-xs opacity-70">Upgraded based on Google Safe Browsing detection</p>
+            <p className="mt-1 text-xs opacity-70">{q.sbUpgraded}</p>
           )}
         </div>
       </div>
@@ -621,11 +622,11 @@ export default function QRCodeScanner() {
       )}
 
       {/* Why? */}
-      {r.assessmentReasons.length > 0 && (
+      {qrReasons(r, t, linkCheckResult?.flags).length > 0 && (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Why?</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{q.why}</p>
           <ul className="mt-3 space-y-2">
-            {r.assessmentReasons.map((reason, i) => (
+            {qrReasons(r, t, linkCheckResult?.flags).map((reason, i) => (
               <li key={i} className="flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-300">
                 <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-teal-500" />
                 {reason}
@@ -642,7 +643,7 @@ export default function QRCodeScanner() {
           onClick={() => setShowDecoded(!showDecoded)}
           className="flex w-full items-center justify-between rounded-xl border border-zinc-200 bg-white px-5 py-3 text-sm font-medium text-zinc-700 transition hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-700"
         >
-          <span>View decoded content</span>
+          <span>{q.viewDecoded}</span>
           <span className="text-zinc-500">{showDecoded ? "▲" : "▼"}</span>
         </button>
         {showDecoded && (
@@ -655,19 +656,19 @@ export default function QRCodeScanner() {
       {/* UPI: Parsed fields + caution signals */}
       {r.contentType === "upi" && r.upi && (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">UPI Payment Details</h2>
+          <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">{q.upiDetails}</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-              <p className="text-xs text-zinc-500">Payee Address (VPA)</p>
-              <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{r.upi.payeeAddress ?? "Not provided"}</p>
+              <p className="text-xs text-zinc-500">{q.payeeAddress}</p>
+              <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{r.upi.payeeAddress ?? q.notProvided}</p>
             </div>
             <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-              <p className="text-xs text-zinc-500">Payee Name</p>
-              <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{r.upi.payeeName ?? "Not provided"}</p>
+              <p className="text-xs text-zinc-500">{q.payeeName}</p>
+              <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{r.upi.payeeName ?? q.notProvided}</p>
             </div>
             {r.upi.amount && (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-xs text-zinc-500">Amount</p>
+                <p className="text-xs text-zinc-500">{q.amount}</p>
                 <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                   {r.upi.currency === "INR" ? "\u20B9" : r.upi.currency ? `${r.upi.currency} ` : ""}{r.upi.amount}
                 </p>
@@ -675,22 +676,22 @@ export default function QRCodeScanner() {
             )}
             {r.upi.transactionNote && (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-xs text-zinc-500">Transaction Note</p>
+                <p className="text-xs text-zinc-500">{q.transactionNote}</p>
                 <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{r.upi.transactionNote}</p>
               </div>
             )}
           </div>
-          {r.upiCautions.length > 0 && (
+          {qrCautions(r.upiCautions, t).length > 0 && (
             <div className="mt-5">
               <div className="flex items-center gap-2">
                 <span className="text-red-500 dark:text-red-400">\u26A0</span>
-                <h3 className="text-sm font-semibold text-red-700 dark:text-red-300">Signals to check manually</h3>
+                <h3 className="text-sm font-semibold text-red-700 dark:text-red-300">{q.cautionTitle}</h3>
               </div>
               <p className="mt-1 text-xs text-zinc-500">
-                These are observations, not a verdict. Verify with the person or merchant before paying.
+                {q.cautionDesc}
               </p>
               <ul className="mt-3 space-y-2">
-                {r.upiCautions.map((c, i) => (
+                {qrCautions(r.upiCautions, t).map((c, i) => (
                   <li key={i} className="rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950/20">
                     <p className="text-sm font-medium text-red-700 dark:text-red-300">{c.label}</p>
                     <p className="mt-1 text-xs text-zinc-400">{c.reason}</p>
@@ -702,7 +703,7 @@ export default function QRCodeScanner() {
           {r.upiCautions.length === 0 && (
             <div className="mt-5 rounded-xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950/20">
               <p className="text-sm text-teal-700 dark:text-teal-300">
-                No obvious red flags detected in the UPI fields. This does not guarantee the payment is safe &mdash; always verify the recipient before sending money.
+                {q.noCaution}
               </p>
             </div>
           )}
@@ -712,35 +713,35 @@ export default function QRCodeScanner() {
       {/* vCard */}
       {r.contentType === "vcard" && r.vcard && (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">Contact Details</h2>
+          <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">{q.contactDetails}</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {r.vcard.fullName && (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-xs text-zinc-500">Full Name</p>
+                <p className="text-xs text-zinc-500">{q.fullName}</p>
                 <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{r.vcard.fullName}</p>
               </div>
             )}
             {r.vcard.phone && (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-xs text-zinc-500">Phone</p>
+                <p className="text-xs text-zinc-500">{q.phone}</p>
                 <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{r.vcard.phone}</p>
               </div>
             )}
             {r.vcard.email && (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-xs text-zinc-500">Email</p>
+                <p className="text-xs text-zinc-500">{q.email}</p>
                 <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{r.vcard.email}</p>
               </div>
             )}
             {r.vcard.org && (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-xs text-zinc-500">Organization</p>
+                <p className="text-xs text-zinc-500">{q.organization}</p>
                 <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{r.vcard.org}</p>
               </div>
             )}
           </div>
           <p className="mt-4 text-xs text-zinc-500">
-            This contact card was decoded from the QR code. Verify the details independently before saving or contacting.
+            {q.vcardNote}
           </p>
         </div>
       )}
@@ -748,10 +749,10 @@ export default function QRCodeScanner() {
       {/* Phone number */}
       {r.contentType === "phone" && (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">Phone Number</h2>
+          <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">{q.phoneNumber}</h2>
           <p className="mt-3 text-lg font-semibold text-zinc-900 dark:text-zinc-100">{r.phone}</p>
           <p className="mt-3 text-xs text-zinc-500">
-            This phone number was decoded from the QR code. No verification has been performed on this number.
+            {q.phoneNote}
           </p>
         </div>
       )}
@@ -759,13 +760,13 @@ export default function QRCodeScanner() {
       {/* URL: Link Checker detailed verdict */}
       {r.contentType === "url" && linkCheckResult && (
         <div className={`mt-6 rounded-2xl border p-6 ${verdictBg(combinedLcVerdict)}`}>
-          <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Link Checker Verdict</p>
+          <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">{q.linkVerdict}</p>
           <p className={`mt-1 text-2xl font-bold ${verdictColor(combinedLcVerdict)}`}>
-            {combinedLcVerdict}
+            {translateVerdict(combinedLcVerdict, t)}
           </p>
           {combinedLcVerdict !== linkCheckResult.verdict && (
             <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-              Upgraded based on Google Safe Browsing detection
+              {q.sbUpgraded}
             </p>
           )}
           {linkCheckResult.flags.length > 0 && (
@@ -777,28 +778,28 @@ export default function QRCodeScanner() {
                       {f.level === "high" ? "🔴" : f.level === "medium" ? "🟠" : "🟡"}
                     </span>
                     <div>
-                      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-200">{f.category}</p>
-                      <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{f.explanation}</p>
+                      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-200">{translateCategory(f.tipKey, t)}</p>
+                      <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">{translateFlagExplanation(f, t)}</p>
                     </div>
                   </div>
                 </li>
               ))}
             </ul>
           )}
-          {linkCheckResult.tips.length > 0 && (
+          {translateTips(linkCheckResult.flags, t).length > 0 && (
             <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/20">
-              <p className="text-xs font-semibold text-red-700 dark:text-red-300">⚠️ Safety tips</p>
+              <p className="text-xs font-semibold text-red-700 dark:text-red-300">⚠️ {q.safetyTips}</p>
               <ul className="mt-2 space-y-1.5">
-                {linkCheckResult.tips.map((tip, i) => (
+                {translateTips(linkCheckResult.flags, t).map((tip, i) => (
                   <li key={i} className="text-xs text-red-600 dark:text-red-400">• {tip}</li>
                 ))}
               </ul>
             </div>
           )}
           <p className="mt-4 text-xs text-zinc-500">
-            Analyzed using NetGuard&apos;s Link Checker.{" "}
+            {q.analyzedBy}{" "}
             <Link href="/link-checker" className="text-teal-700 hover:text-teal-600 dark:text-teal-400 dark:hover:text-teal-300">
-              Open Link Checker →
+              {q.openLinkChecker}
             </Link>
           </p>
         </div>
@@ -807,29 +808,29 @@ export default function QRCodeScanner() {
       {/* Wi-Fi */}
       {r.contentType === "wifi" && r.wifi && (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">Wi-Fi Network Details</h2>
+          <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">{q.wifiDetails}</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {r.wifi.ssid && (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-xs text-zinc-500">Network Name (SSID)</p>
+                <p className="text-xs text-zinc-500">{q.ssid}</p>
                 <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{r.wifi.ssid}</p>
               </div>
             )}
             {r.wifi.encryption && (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-xs text-zinc-500">Encryption</p>
+                <p className="text-xs text-zinc-500">{q.encryption}</p>
                 <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{r.wifi.encryption}</p>
               </div>
             )}
             {r.wifi.password && (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-xs text-zinc-500">Password</p>
+                <p className="text-xs text-zinc-500">{q.wifiPassword}</p>
                 <p className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{r.wifi.password}</p>
               </div>
             )}
           </div>
           <p className="mt-4 text-xs text-zinc-500">
-            Ensure you trust the source of this QR code before connecting to the network.
+            {q.wifiNote}
           </p>
         </div>
       )}
@@ -841,16 +842,16 @@ export default function QRCodeScanner() {
             <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
               <div className="flex items-center gap-3">
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-teal-500 border-t-transparent" />
-                <p className="text-sm text-zinc-600 dark:text-zinc-400">Checking URL reputation with Google Safe Browsing...</p>
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">{q.sbChecking}</p>
               </div>
             </div>
           )}
           {!sbChecking && !sbApiKeyMissing && (
             <div className={`mt-6 rounded-2xl border p-5 ${sbThreats.length > 0 ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/20" : "border-teal-200 bg-teal-50 dark:border-teal-800 dark:bg-teal-950/20"}`}>
-              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Google Safe Browsing</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{q.sbHeading}</p>
               {sbThreats.length > 0 ? (
                 <div className="mt-2">
-                  <p className="text-sm font-semibold text-red-600 dark:text-red-400">⛔ URL flagged as dangerous</p>
+                  <p className="text-sm font-semibold text-red-600 dark:text-red-400">⛔ {q.sbFlagged}</p>
                   <ul className="mt-2 space-y-1">
                     {sbThreats.map((threat, i) => (
                       <li key={i} className="text-xs text-zinc-600 dark:text-zinc-400">
@@ -861,13 +862,13 @@ export default function QRCodeScanner() {
                   </ul>
                 </div>
               ) : (
-                <p className="mt-1 text-sm text-teal-700 dark:text-teal-300">✓ No known threats found for this URL</p>
+                <p className="mt-1 text-sm text-teal-700 dark:text-teal-300">✓ {q.sbClean}</p>
               )}
             </div>
           )}
           {sbApiKeyMissing && (
             <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-              <p className="text-xs text-zinc-500">Google Safe Browsing not configured. Add GOOGLE_SAFE_BROWSING_API_KEY to enable URL reputation checks.</p>
+              <p className="text-xs text-zinc-500">{q.sbNotConfigured}</p>
             </div>
           )}
         </>
@@ -878,7 +879,7 @@ export default function QRCodeScanner() {
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
           <div className="flex items-center gap-3">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-teal-500 border-t-transparent" />
-            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-200">AI is generating a security explanation...</p>
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-200">{q.aiLoading}</p>
           </div>
         </div>
       )}
@@ -889,7 +890,7 @@ export default function QRCodeScanner() {
           "border-teal-200 bg-teal-50 dark:border-teal-800 dark:bg-teal-950/20"
         }`}>
           <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
-            🧠 AI Security Explanation
+            🧠 {q.aiHeading}
           </h2>
           <div className="mt-3 flex items-center gap-2">
             <span className={`rounded-full px-3 py-1 text-xs font-bold ${
@@ -897,7 +898,7 @@ export default function QRCodeScanner() {
               aiExplanation.safetyLevel === "Suspicious" ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/20 dark:text-yellow-300" :
               "bg-teal-100 text-teal-800 dark:bg-teal-500/20 dark:text-teal-300"
             }`}>
-              {aiExplanation.safetyLevel}
+              {aiExplanation.safetyLevel === "Risky" ? q.aiLevelRisky : aiExplanation.safetyLevel === "Suspicious" ? q.aiLevelSuspicious : aiExplanation.safetyLevel === "Safe" ? q.aiLevelSafe : aiExplanation.safetyLevel}
             </span>
           </div>
           {aiExplanation.explanation && (
@@ -908,7 +909,7 @@ export default function QRCodeScanner() {
           )}
           {aiExplanation.potentialRisks.length > 0 && (
             <div className="mt-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Potential Risks</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{q.aiRisks}</p>
               <ul className="mt-2 space-y-1">
                 {aiExplanation.potentialRisks.map((risk, i) => (
                   <li key={i} className="flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-300">
@@ -921,7 +922,7 @@ export default function QRCodeScanner() {
           )}
           {aiExplanation.recommendations.length > 0 && (
             <div className="mt-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-teal-700 dark:text-teal-400">Recommendations</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-teal-700 dark:text-teal-400">{q.aiRecs}</p>
               <ol className="mt-2 space-y-1">
                 {aiExplanation.recommendations.map((rec, i) => (
                   <li key={i} className="flex gap-2 text-sm text-zinc-700 dark:text-zinc-300">
@@ -971,9 +972,9 @@ export default function QRCodeScanner() {
       {/* Disclaimer */}
       <div className="mt-6 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <p className="text-xs text-zinc-500">
-          The QR code was decoded client-side in your browser. No image was uploaded to any server.
-          {r.contentType === "url" && " The URL was analyzed using NetGuard's existing Link Checker."}
-          {r.contentType === "upi" && " UPI caution signals are heuristic observations, not a definitive safety verdict."}
+          {q.disclaimer}
+          {r.contentType === "url" && q.disclaimerUrl}
+          {r.contentType === "upi" && q.disclaimerUpi}
         </p>
       </div>
 
@@ -984,14 +985,14 @@ export default function QRCodeScanner() {
           onClick={handleCopy}
           className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
         >
-          {copied ? "✓ Copied!" : "Copy Result"}
+          {copied ? t.common.copied : q.copyResult}
         </button>
         {r.contentType === "url" && (
           <Link
             href="/link-checker"
             className="rounded-full border border-teal-300 px-5 py-2 text-sm font-medium text-teal-700 transition hover:border-teal-500 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-950"
           >
-            Open Link Checker →
+            {q.openLinkChecker}
           </Link>
         )}
         {(effectiveAssessment === "Suspicious" || effectiveAssessment === "High Risk" || r.contentType === "text") && (
@@ -999,7 +1000,7 @@ export default function QRCodeScanner() {
             href="/chatbot"
             className="rounded-full border border-teal-300 px-5 py-2 text-sm font-medium text-teal-700 transition hover:border-teal-500 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-950"
           >
-            Investigate with Scam Chatbot →
+            {q.investigateChatbot}
           </Link>
         )}
         <button
@@ -1007,7 +1008,7 @@ export default function QRCodeScanner() {
           onClick={handleReset}
           className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium text-zinc-700 transition hover:border-teal-500 hover:text-teal-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:text-teal-400"
         >
-          ← Scan Another QR Code
+          {q.scanAnother}
         </button>
       </div>
     </div>
