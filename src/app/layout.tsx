@@ -19,6 +19,12 @@ export const metadata: Metadata = {
   title: "NetGuard — Digital Footprint & Social Media Safety",
   description:
     "NetGuard helps you understand your digital footprint and stay safe on social media with quizzes, link checking, and articles.",
+  // No `icons` metadata on purpose. There is exactly one logo - public/logo.png,
+  // a teal shield with a transparent background and the keyhole/speed lines cut
+  // out of it - so it reads correctly on light and dark browser tabs without a
+  // dark-mode variant. `npm run icons` (scripts/generate-icons.cjs) regenerates
+  // src/app/favicon.ico, src/app/icon.png and src/app/apple-icon.png from it,
+  // and the Next.js App Router file conventions link them automatically.
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
