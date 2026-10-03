@@ -19,6 +19,7 @@ export interface Dict {
   linkChecker: Record<string, string>;
   scamChatbot: Record<string, any>;
   qrScanner: Record<string, any>;
+  identityMap: Record<string, any>;
   heatmap: Record<string, any>;
   safetyScanner: Record<string, any>;
   chatbot: Record<string, string>;

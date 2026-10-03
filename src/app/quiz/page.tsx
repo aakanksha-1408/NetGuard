@@ -1,9 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import BackToHome from "@/components/BackToHome";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/lib/i18n/context";
+import {
+  loadIdentityMapResult,
+  combinedFootprintScore,
+  type IdentityMapResult,
+} from "@/lib/exposureStore";
 
 type Category = "Privacy" | "Security" | "Exposure" | "Awareness";
 
@@ -50,6 +56,7 @@ export default function QuizPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [selectedOptIndex, setSelectedOptIndex] = useState<number | null>(null);
+  const [identityResult, setIdentityResult] = useState<IdentityMapResult | null>(null);
 
   const currentQuestion = QUESTIONS[currentIndex];
   const progress = Math.round((currentIndex / QUESTIONS.length) * 100);
@@ -89,6 +96,8 @@ export default function QuizPage() {
     setScore(finalScore);
     setCategoryScores(catScores);
     setSubmitted(true);
+    // Fold in the Digital Identity Map result if the user has run it.
+    setIdentityResult(loadIdentityMapResult());
     setSaving(true);
     setSaveError(null);
 
@@ -124,6 +133,7 @@ export default function QuizPage() {
     setScore(0);
     setSaveError(null);
     setSelectedOptIndex(null);
+    setIdentityResult(null);
   }
 
   if (submitted) {
@@ -162,6 +172,11 @@ export default function QuizPage() {
             </div>
           ))}
         </div>
+
+        <IdentityMapSummary
+          score={score}
+          identity={identityResult}
+        />
 
         <div className="mt-6 text-center">
           {saving && <p className="text-sm text-zinc-500">{t.quiz.saving}</p>}
@@ -257,6 +272,91 @@ export default function QuizPage() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Digital Identity Map summary folded into the quiz results. This never changes
+ * how the quiz computes its own score — it only adds a clearly-labelled combined
+ * footprint view (60% quiz + 40% identity exposure) when a map result exists.
+ */
+function IdentityMapSummary({
+  score,
+  identity,
+}: {
+  score: number;
+  identity: IdentityMapResult | null;
+}) {
+  if (!identity) {
+    return (
+      <div className="mt-6 rounded-2xl border border-dashed border-teal-300 bg-teal-50 p-5 text-center dark:border-teal-800 dark:bg-teal-950/40">
+        <p className="text-sm text-teal-900 dark:text-teal-200">
+          Run the Digital Identity Map to get a more accurate footprint score.
+        </p>
+        <Link
+          href="/identity-map"
+          className="mt-3 inline-flex h-10 items-center justify-center rounded-full bg-teal-500 px-5 text-sm font-semibold text-black transition hover:bg-teal-400"
+        >
+          Open the Digital Identity Map
+        </Link>
+      </div>
+    );
+  }
+
+  const combined = combinedFootprintScore(score, identity.score);
+  const riskColor =
+    identity.riskLevel === "High"
+      ? "text-red-600 dark:text-red-400"
+      : identity.riskLevel === "Medium"
+        ? "text-amber-600 dark:text-amber-400"
+        : "text-emerald-600 dark:text-emerald-400";
+
+  return (
+    <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Digital Identity Map</p>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            From {identity.platformCount} public profile{identity.platformCount === 1 ? "" : "s"}
+          </p>
+        </div>
+        <Link
+          href="/identity-map"
+          className="text-sm font-medium text-teal-600 hover:text-teal-500 dark:text-teal-400"
+        >
+          View your identity map →
+        </Link>
+      </div>
+
+      <div className="mt-4 flex items-center gap-6">
+        <div>
+          <p className="text-2xl font-bold text-teal-600 dark:text-teal-400">{identity.score}</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">Identity exposure</p>
+        </div>
+        <span className={`text-sm font-semibold ${riskColor}`}>{identity.riskLevel} risk</span>
+      </div>
+
+      {identity.topFindings.length > 0 && (
+        <ul className="mt-4 space-y-1.5">
+          {identity.topFindings.map((finding, i) => (
+            <li key={i} className="flex gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-teal-500" aria-hidden="true" />
+              <span>{finding}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-5 rounded-xl bg-zinc-50 p-4 dark:bg-zinc-900">
+        <div className="flex items-baseline justify-between">
+          <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Overall footprint score</p>
+          <p className="text-xl font-bold text-teal-600 dark:text-teal-400">{combined}/100</p>
+        </div>
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          Combines your quiz score ({score}) and identity exposure ({identity.score}) — 60% quiz + 40% identity map.
+        </p>
+      </div>
     </div>
   );
 }

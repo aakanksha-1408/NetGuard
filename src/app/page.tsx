@@ -5,6 +5,7 @@ import { useLang } from "@/lib/i18n/context";
 
 const FEATURES = [
   { href: "/quiz", icon: "\ud83e\udde0", titleKey: "footprintScore", descKey: "footprintDesc" },
+  { href: "/identity-map", icon: "\ud83d\udd78\ufe0f", titleKey: "identityMap", descKey: "identityMapDesc" },
   { href: "/articles", icon: "\ud83d\udcd6", titleKey: "articles", descKey: "articlesDesc" },
   { href: "/chatbot", icon: "\ud83d\udd0d", titleKey: "scamInvestigator", descKey: "scamInvestigatorDesc" },
   { href: "/heatmap", icon: "\ud83d\uddfa\ufe0f", titleKey: "scamHeatmap", descKey: "scamHeatmapDesc" },
@@ -69,7 +70,7 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="mt-12 grid gap-6 sm:grid-cols-2">
+        <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map(({ href, icon, titleKey, descKey }) => (
             <Link
               key={href}

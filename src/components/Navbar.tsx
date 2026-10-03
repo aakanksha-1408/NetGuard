@@ -22,13 +22,14 @@ export default function Navbar() {
 
   // Desktop + mobile tool destinations, all translated via nav i18n keys.
   const tools = [
+    { href: "/link-checker", label: t.nav.linkChecker },
+    { href: "/qr-scanner", label: t.nav.qrScanner },
     { href: "/quiz", label: t.nav.footprint },
+    { href: "/identity-map", label: t.nav.identityMap },
     { href: "/articles", label: t.nav.articles },
     { href: "/articles?tab=community", label: t.nav.community },
     { href: "/chatbot", label: t.nav.investigator },
     { href: "/heatmap", label: t.nav.heatmap },
-    { href: "/qr-scanner", label: t.nav.qrScanner },
-    { href: "/link-checker", label: t.nav.linkChecker },
   ];
 
   useEffect(() => {
