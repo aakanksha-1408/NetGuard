@@ -225,15 +225,6 @@ function RedFlagCard({
 /* Scanning animation                                                  */
 /* ------------------------------------------------------------------ */
 
-const SCAN_STEPS = [
-  "Analyzing message content...",
-  "Detecting scam patterns...",
-  "Checking red flags...",
-  "Classifying scam type...",
-  "Evaluating risk score...",
-  "Preparing recommendations...",
-];
-
 function ScanningView({ steps }: { steps: string[] }) {
   const [step, setStep] = useState(0);
   useEffect(() => {
