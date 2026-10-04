@@ -11,6 +11,7 @@ export interface Dict {
   nav: Record<string, string>;
   footer: Record<string, string>;
   common: Record<string, string>;
+  offline: Record<string, string>;
   home: Record<string, string>;
   login: Record<string, string>;
   quiz: Record<string, any>;

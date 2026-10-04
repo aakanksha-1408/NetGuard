@@ -1,8 +1,10 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { LanguageProvider } from "@/lib/i18n/context";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
+import SwRegister from "@/components/sw-register";
+import AppSplash from "@/components/app-splash";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,6 +27,14 @@ export const metadata: Metadata = {
   // dark-mode variant. `npm run icons` (scripts/generate-icons.cjs) regenerates
   // src/app/favicon.ico, src/app/icon.png and src/app/apple-icon.png from it,
   // and the Next.js App Router file conventions link them automatically.
+  // PWA: the manifest lives in src/app/manifest.ts (same metadata convention,
+  // auto-linked as /manifest.webmanifest) - do not add a `manifest` field here.
+};
+
+// Kept identical to theme_color in src/app/manifest.ts so the installed/
+// standalone app chrome (and the browser tab tint) match the black splash.
+export const viewport: Viewport = {
+  themeColor: "#000000",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -34,6 +44,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-white font-sans text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
+        <AppSplash />
+        <SwRegister />
         <LanguageProvider>
           <Navbar />
           <div className="flex flex-1 flex-col">{children}</div>

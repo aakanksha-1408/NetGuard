@@ -15,10 +15,21 @@ const sharp = require("sharp");
  * node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/01-metadata/app-icons.md;
  * Next auto-links all three, so layout.tsx needs no `icons` metadata at all):
  *   src/app/favicon.ico     16 / 32 / 48 / 256, 32-bit PNG-in-ICO  -> browser tabs
- *   src/app/icon.png        256x256 PNG                            -> <link rel="icon">
- *   src/app/apple-icon.png  180x180 PNG                            -> iOS home screen
+ *   src/app/icon.png        256x256 PNG, transparent               -> <link rel="icon">
+ *   src/app/apple-icon.png  180x180 PNG on solid black             -> iOS home screen
+ *                           (iOS composites transparency onto white; black
+ *                            matches the manifest background/theme color)
  *   (note: `apple-touch-icon.png` is NOT a Next.js convention - the app-router
  *    file name is `apple-icon.png`, which is what emits the apple-touch-icon link)
+ *
+ * PWA install icons (referenced from src/app/manifest.ts, must live in
+ * public/ because a manifest can only point at URLs, not app-convention files):
+ *   public/icon-192.png           192x192, transparent, purpose "any"
+ *   public/icon-512.png           512x512, transparent, purpose "any"
+ *   public/icon-maskable-512.png  512x512, glyph at ~65% centred on solid
+ *                                 black (#000000), purpose "maskable"
+ *   512px exceeds the ~370px source artwork, so those two are the only
+ *   outputs that upscale; sharp's Lanczos filter keeps the flat shield clean.
  *
  * Run with:  npm run icons
  *
@@ -33,6 +44,17 @@ const SOURCE = path.join(ROOT, "public", "logo.png");
 // Transparent margin around the glyph, as a fraction of the icon canvas.
 // Favicons that touch the edge of the frame look cramped in a browser tab.
 const PADDING_RATIO = 0.06;
+
+// Solid black used for the icons that must not be transparent: the maskable
+// PWA icon and the iOS apple-icon (launchers paint transparency white, and
+// the manifest background_color / theme_color are #000000 - black splash).
+const SOLID_BG = { r: 0, g: 0, b: 0, alpha: 1 };
+
+// Maskable icon: launchers crop non-square icons down to a safe circle that
+// keeps only the central 80%, so the glyph is shrunk to this fraction of the
+// canvas and laid on the solid background instead of transparency.
+const MASKABLE_SIZE = 512;
+const MASKABLE_GLYPTH_RATIO = 0.65;
 
 // Sizes written into the .ico container.
 const ICO_SIZES = [16, 32, 48, 256];
@@ -93,9 +115,9 @@ async function boostAlpha(buf, lo, hi) {
 /**
  * Cut the logo down to one square icon of `size` px: trim to the glyph, scale
  * it to fit inside (1 - 2*PADDING_RATIO) of the canvas, centre it, and leave
- * everything else at alpha 0.
+ * everything else at alpha 0 (or on `background` when a solid tile is wanted).
  */
-async function renderSquare(glyph, size) {
+async function renderSquare(glyph, size, background = { r: 0, g: 0, b: 0, alpha: 0 }) {
   const inner = Math.round(size * (1 - 2 * PADDING_RATIO));
   // fit: inside keeps the glyph's own aspect ratio - no stretching.
   const scaled = await sharp(glyph)
@@ -112,13 +134,37 @@ async function renderSquare(glyph, size) {
   const top = Math.round((size - meta.height) / 2);
 
   const out = await sharp({
-    create: { width: size, height: size, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+    create: { width: size, height: size, channels: 4, background },
   })
     .composite([{ input: scaled, left, top, blend: "over" }])
     .png()
     .toBuffer();
 
   return size <= ALPHA_BOOST_MAX_SIZE ? boostAlpha(out, ALPHA_BOOST_LO, ALPHA_BOOST_HI) : out;
+}
+
+/**
+ * Maskable variant: same centring as renderSquare but on a solid background
+ * and with the glyph at ~65% of the canvas, so any launcher mask (circle,
+ * squircle, rounded square) still leaves the whole shield inside the safe zone.
+ */
+async function renderMaskable(glyph, size) {
+  const inner = Math.round(size * MASKABLE_GLYPTH_RATIO);
+  const scaled = await sharp(glyph)
+    .resize(inner, inner, { fit: "inside", withoutEnlargement: false })
+    .png()
+    .toBuffer();
+
+  const meta = await sharp(scaled).metadata();
+  const left = Math.round((size - meta.width) / 2);
+  const top = Math.round((size - meta.height) / 2);
+
+  return sharp({
+    create: { width: size, height: size, channels: 4, background: SOLID_BG },
+  })
+    .composite([{ input: scaled, left, top, blend: "over" }])
+    .png()
+    .toBuffer();
 }
 
 /** Assemble a multi-size .ico from PNG-encoded 32-bit entries. */
@@ -210,12 +256,24 @@ async function main() {
   // --- standalone PNG sizes ---------------------------------------------
   const pngTargets = [
     [path.join(ROOT, "src", "app", "icon.png"), 256],
-    [path.join(ROOT, "src", "app", "apple-icon.png"), 180],
+    // iOS composites transparent icons onto a WHITE tile; solid black keeps
+    // the teal shield on the same backdrop as the PWA splash/launcher.
+    [path.join(ROOT, "src", "app", "apple-icon.png"), 180, SOLID_BG],
+    // PWA install icons, referenced by src/app/manifest.ts.
+    [path.join(ROOT, "public", "icon-192.png"), 192],
+    [path.join(ROOT, "public", "icon-512.png"), 512],
   ];
-  for (const [file, size] of pngTargets) {
-    await fs.promises.writeFile(file, await renderSquare(glyphResized, size));
+  for (const [file, size, background] of pngTargets) {
+    await fs.promises.writeFile(
+      file,
+      await renderSquare(glyphResized, size, background ?? { r: 0, g: 0, b: 0, alpha: 0 })
+    );
     outputs.push(file);
   }
+
+  const maskablePath = path.join(ROOT, "public", "icon-maskable-512.png");
+  await fs.promises.writeFile(maskablePath, await renderMaskable(glyphResized, MASKABLE_SIZE));
+  outputs.push(maskablePath);
 
   // --- verification ------------------------------------------------------
   console.log("\nalpha verification (re-read from disk):");

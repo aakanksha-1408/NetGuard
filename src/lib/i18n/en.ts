@@ -36,6 +36,13 @@ export const en: Dict = {
     submitting: "Submitting...",
     pleaseWait: "Please wait...",
   },
+  offline: {
+    title: "You're offline",
+    message:
+      "NetGuard can't reach the internet right now. Reconnect to use the link checker, QR scanner, scam investigator and other live tools.",
+    retry: "Try again",
+    note: "Pages you visited while online may still be available.",
+  },
   home: {
     badge: "Digital footprint & social media safety",
     heroTitle: "Detect. Protect. Stay Secure.",
