@@ -46,22 +46,12 @@ body {
   font-family: var(--font-geist-sans), system-ui, sans-serif;
 }
 
-/* PWA standalone (installed app): black shell so there is no white flash
-   before/behind the launch splash and while sections paint. Browser tabs
-   keep the light/dark theme above - this only applies to display-mode:
-   standalone. Later in the file than the body rule, same specificity, so
-   it wins there. */
-@media (display-mode: standalone) {
-  html,
-  body {
-    background: #000;
-  }
-}
-
 /* Black launch splash rendered by src/components/app-splash.tsx. Server
    markup always contains the overlay; visibility is decided here, purely
    by display-mode, so first paint in the installed app is black with zero
-   hydration mismatch and browser users never see it. */
+   hydration mismatch and browser users never see it. The component returns
+   null once done, so no black remains on html, body or any wrapper - the
+   app keeps its original light/dark --background from globals.css above. */
 .app-splash {
   display: none;
   position: fixed;
